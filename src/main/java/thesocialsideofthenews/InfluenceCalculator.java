@@ -129,9 +129,26 @@ public class InfluenceCalculator {
 			});
 			
 			
-			JavaPairRDD<String, Tuple2<String, String>> influeceMap = entityNewsMap.join(entityTweetMap);
+			JavaPairRDD<String, Tuple2<String, String>> influenceMap = entityNewsMap.join(entityTweetMap);
+			
+			influenceMap.filter(new Function<Tuple2<String,Tuple2<String,String>>, Boolean>() {				
+				@Override
+				public Boolean call(Tuple2<String, Tuple2<String, String>> match)
+						throws Exception {
+					return match._2._1 != null && match._2._2 !=null;
+				}
+			});
 
-		
+			influenceMap.mapToPair(new PairFunction<Tuple2<String,Tuple2<String,String>>, String, String>() {
+				@Override
+				public Tuple2<String, String> call(
+						Tuple2<String, Tuple2<String, String>> match)
+						throws Exception {					
+					return match._2();
+				}
+			});
+			
+			
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration",e);
