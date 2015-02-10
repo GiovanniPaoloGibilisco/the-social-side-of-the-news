@@ -79,13 +79,13 @@ public class InfluenceCalculator {
 			});
 			
 			
-			JavaPairRDD<String, String> newsEntityMap = newsEntityListMap.flatMapToPair(new PairFlatMapFunction<Tuple2<String,String>, String, String>() {
+			JavaPairRDD<String, String> entityNewsMap = newsEntityListMap.flatMapToPair(new PairFlatMapFunction<Tuple2<String,String>, String, String>() {
 				public Iterable<Tuple2<String, String>> call(
 						Tuple2<String, String> news) throws Exception {
 					List<String> entities = Arrays.asList(news._2.split(","));
 					List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String,String>>();
 					for (String entity:entities) {
-						newsList.add(new Tuple2<String, String>(news._1, entity));
+						newsList.add(new Tuple2<String, String>(entity,news._1));
 					}
 					return newsList;
 				}
@@ -116,7 +116,7 @@ public class InfluenceCalculator {
 				}
 			});
 
-			JavaPairRDD<String, String> tweetEntityMap = tweetEntityListMap.flatMapToPair(new PairFlatMapFunction<Tuple2<String,String>, String, String>() {
+			JavaPairRDD<String, String> entityTweetMap = tweetEntityListMap.flatMapToPair(new PairFlatMapFunction<Tuple2<String,String>, String, String>() {
 				public Iterable<Tuple2<String, String>> call(
 						Tuple2<String, String> tweet) throws Exception {
 					List<String> entities = Arrays.asList(tweet._2.split(","));
@@ -126,12 +126,12 @@ public class InfluenceCalculator {
 					}
 					return tweets;
 				}
-			});			
-
+			});
 			
+			
+			JavaPairRDD<String, Tuple2<String, String>> influeceMap = entityNewsMap.join(entityTweetMap);
 
-
-
+		
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration",e);
