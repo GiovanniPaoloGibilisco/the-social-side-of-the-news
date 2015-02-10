@@ -1,0 +1,6 @@
+/.settings
+.classpath
+.project
+.DS_Store
+/target
+.*.md.html
