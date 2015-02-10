@@ -46,7 +46,6 @@ public class InfluenceCalculator {
 			checkDataExists(inputTweets);
 			checkDataExists(inputNews);
 
-			// split news
 			JavaRDD<String> news = splitByRow(inputNews);
 
 			news = news.filter(new Function<String, Boolean>() {
@@ -71,7 +70,7 @@ public class InfluenceCalculator {
 						}
 					});
 
-			JavaPairRDD<String, String> newsEntityMap = newsEntityListMap
+			JavaPairRDD<String, String> entityNewsMap = newsEntityListMap
 					.flatMapToPair(new PairFlatMapFunction<Tuple2<String, String>, String, String>() {
 						public Iterable<Tuple2<String, String>> call(
 								Tuple2<String, String> news) throws Exception {
@@ -79,14 +78,13 @@ public class InfluenceCalculator {
 									.split(","));
 							List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String, String>>();
 							for (String entity : entities) {
-								newsList.add(new Tuple2<String, String>(
-										news._1, entity));
+								newsList.add(new Tuple2<String, String>(entity,
+										news._1));
 							}
 							return newsList;
 						}
 					});
 
-			// split tweets
 			JavaRDD<String> tweets = splitByRow(inputTweets);
 
 			tweets = tweets.filter(new Function<String, Boolean>() {
@@ -113,7 +111,7 @@ public class InfluenceCalculator {
 						}
 					});
 
-			JavaPairRDD<String, String> tweetEntityMap = tweetEntityListMap
+			JavaPairRDD<String, String> entityTweetMap = tweetEntityListMap
 					.flatMapToPair(new PairFlatMapFunction<Tuple2<String, String>, String, String>() {
 						public Iterable<Tuple2<String, String>> call(
 								Tuple2<String, String> tweet) throws Exception {
@@ -125,6 +123,29 @@ public class InfluenceCalculator {
 										entity));
 							}
 							return tweets;
+						}
+					});
+
+			JavaPairRDD<String, Tuple2<String, String>> influenceMap = entityNewsMap
+					.join(entityTweetMap);
+
+			influenceMap
+					.filter(new Function<Tuple2<String, Tuple2<String, String>>, Boolean>() {
+						@Override
+						public Boolean call(
+								Tuple2<String, Tuple2<String, String>> match)
+								throws Exception {
+							return match._2._1 != null && match._2._2 != null;
+						}
+					});
+
+			influenceMap
+					.mapToPair(new PairFunction<Tuple2<String, Tuple2<String, String>>, String, String>() {
+						@Override
+						public Tuple2<String, String> call(
+								Tuple2<String, Tuple2<String, String>> match)
+								throws Exception {
+							return match._2();
 						}
 					});
 
