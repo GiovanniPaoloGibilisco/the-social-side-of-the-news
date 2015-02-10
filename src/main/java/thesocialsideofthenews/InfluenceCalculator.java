@@ -1,7 +1,9 @@
 package thesocialsideofthenews;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.List;
 import java.util.Set;
 
 import org.apache.hadoop.conf.Configuration;
@@ -13,6 +15,7 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.PairFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,7 +36,7 @@ public class InfluenceCalculator {
 
 			Configuration hadoopConf = new Configuration();
 			FileSystem fs = FileSystem.get(hadoopConf);
-			
+
 			//check that tweets exists
 			Path inputTweets = new Path("tweets.json");			
 			if(!fs.exists(inputTweets)){
@@ -41,9 +44,9 @@ public class InfluenceCalculator {
 				sc.stop();
 				return;
 			}
-			
+
 			//check that news exist
-			Path inputNews = new Path("tweets.json");			
+			Path inputNews = new Path("news.json");			
 			if(!fs.exists(inputNews)){
 				logger.error("{} does not exist", inputNews);			
 				sc.stop();
@@ -56,7 +59,7 @@ public class InfluenceCalculator {
 					return Arrays.asList(s.split("\n"));
 				}
 			}).cache();			
-			
+
 			news = news.filter(new Function<String, Boolean>() {				
 				public Boolean call(String news) throws Exception {
 					JsonParser parser = new JsonParser();
@@ -64,8 +67,8 @@ public class InfluenceCalculator {
 					return jsonNews.get("entities") != null;					
 				}
 			});
-			
-			JavaPairRDD<String,String> newsEntityMap = news.mapToPair(new PairFunction<String, String, String>() {
+
+			JavaPairRDD<String,String> newsEntityListMap = news.mapToPair(new PairFunction<String, String, String>() {
 				public Tuple2<String, String> call(String news) throws Exception {
 					JsonParser parser = new JsonParser();
 					JsonObject jsonNews = parser.parse(news).getAsJsonObject();
@@ -75,13 +78,26 @@ public class InfluenceCalculator {
 				}
 			});
 			
+			
+			JavaPairRDD<String, String> newsEntityMap = newsEntityListMap.flatMapToPair(new PairFlatMapFunction<Tuple2<String,String>, String, String>() {
+				public Iterable<Tuple2<String, String>> call(
+						Tuple2<String, String> news) throws Exception {
+					List<String> entities = Arrays.asList(news._2.split(","));
+					List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String,String>>();
+					for (String entity:entities) {
+						newsList.add(new Tuple2<String, String>(news._1, entity));
+					}
+					return newsList;
+				}
+			});	
+
 			//split tweets
 			JavaRDD<String> tweets =  sc.textFile(inputTweets.toString(),1).flatMap(new FlatMapFunction<String, String>() {
 				public Iterable<String> call(String s) throws Exception {													
 					return Arrays.asList(s.split("\n"));
 				}
 			}).cache();
-			
+
 			tweets = tweets.filter(new Function<String, Boolean>() {				
 				public Boolean call(String tweet) throws Exception {
 					JsonParser parser = new JsonParser();
@@ -89,8 +105,8 @@ public class InfluenceCalculator {
 					return jsonTweet.get("entities") != null;					
 				}
 			});
-			
-			JavaPairRDD<String,String> tweetEntityMap = tweets.mapToPair(new PairFunction<String, String, String>() {
+
+			JavaPairRDD<String,String> tweetEntityListMap = tweets.mapToPair(new PairFunction<String, String, String>() {
 				public Tuple2<String, String> call(String tweet) throws Exception {
 					JsonParser parser = new JsonParser();
 					JsonObject jsonTweet = parser.parse(tweet).getAsJsonObject();
@@ -99,11 +115,23 @@ public class InfluenceCalculator {
 					return new Tuple2<String, String>(link, entities);
 				}
 			});
+
+			JavaPairRDD<String, String> tweetEntityMap = tweetEntityListMap.flatMapToPair(new PairFlatMapFunction<Tuple2<String,String>, String, String>() {
+				public Iterable<Tuple2<String, String>> call(
+						Tuple2<String, String> tweet) throws Exception {
+					List<String> entities = Arrays.asList(tweet._2.split(","));
+					List<Tuple2<String, String>> tweets = new ArrayList<Tuple2<String,String>>();
+					for (String entity:entities) {
+						tweets.add(new Tuple2<String, String>(tweet._1, entity));
+					}
+					return tweets;
+				}
+			});			
+
 			
-			
-			 
-			
-			
+
+
+
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration",e);
