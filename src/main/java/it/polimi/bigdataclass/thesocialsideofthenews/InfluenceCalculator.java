@@ -33,8 +33,8 @@ public class InfluenceCalculator {
 
 	static private SparkConf conf = new SparkConf().setAppName(
 			"The-social-side-of-the-news").setMaster("local[1]");
-	static private JavaSparkContext sc = new JavaSparkContext(conf);
-	static private FileSystem fs;
+	static private JavaSparkContext sparkContext;
+	static private FileSystem hadoopFileSystem;
 
 	public static void main(String[] args) {
 
@@ -46,9 +46,9 @@ public class InfluenceCalculator {
 				return;
 			}
 			final int min_entities_matching = 1;
-
-			Configuration hadoopConf = new Configuration();
-			fs = FileSystem.get(hadoopConf);
+			
+			sparkContext = new JavaSparkContext(conf);
+			initHadoopFileSystem();
 
 			Path inputTweets = new Path(config.tweetsPath);
 			Path inputNews = new Path(config.newsPath);
@@ -58,12 +58,14 @@ public class InfluenceCalculator {
 
 			JavaRDD<String> newsByRow = splitByRow(inputNews);
 			newsByRow = filterOutEmptyEntities(newsByRow);
-			JavaPairRDD<String, String> newsEntityListMap = extractPairs(newsByRow,"link","entities");
+			JavaPairRDD<String, String> newsEntityListMap = extractPairs(
+					newsByRow, "link", "entities");
 			JavaPairRDD<String, String> entityNewsMap = splitValuesAndSwapKeyValue(newsEntityListMap);
 
 			JavaRDD<String> tweetsByRow = splitByRow(inputTweets);
 			tweetsByRow = filterOutEmptyEntities(tweetsByRow);
-			JavaPairRDD<String, String> tweetEntityListMap = extractPairs(tweetsByRow, "timestamp", "entities");
+			JavaPairRDD<String, String> tweetEntityListMap = extractPairs(
+					tweetsByRow, "timestamp", "entities");
 			JavaPairRDD<String, String> entityTweetMap = splitValuesAndSwapKeyValue(tweetEntityListMap);
 
 			// join entities and news with entities and tweets
@@ -133,12 +135,18 @@ public class InfluenceCalculator {
 		} catch (DataNotFoundException e) {
 			logger.error("Input Data not found", e);
 		} catch (ParameterException e) {
-			logger.error("Wrong parameters. Required parameters: --newsPath, --tweetPath, --outputPath");
+			logger.error("Wrong configuration. Required parameters: --newsPath, --tweetPath, --outputPath");
 		} catch (Exception e) {
 			logger.error("Unknown error", e);
 		} finally {
-			sc.stop();
+			if (sparkContext != null)
+				sparkContext.stop();
 		}
+	}
+
+	static void initHadoopFileSystem() throws IOException {
+		Configuration hadoopConf = new Configuration();
+		hadoopFileSystem = FileSystem.get(hadoopConf);
 	}
 
 	private static JavaPairRDD<String, String> splitValuesAndSwapKeyValue(
@@ -147,8 +155,7 @@ public class InfluenceCalculator {
 				.flatMapToPair(new PairFlatMapFunction<Tuple2<String, String>, String, String>() {
 					public Iterable<Tuple2<String, String>> call(
 							Tuple2<String, String> pair) throws Exception {
-						List<String> values = Arrays.asList(pair._2
-								.split(","));
+						List<String> values = Arrays.asList(pair._2.split(","));
 						List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String, String>>();
 						for (String value : values) {
 							newsList.add(new Tuple2<String, String>(value,
@@ -167,19 +174,17 @@ public class InfluenceCalculator {
 					public Tuple2<String, String> call(String row)
 							throws Exception {
 						JsonParser parser = new JsonParser();
-						JsonObject json = parser.parse(row)
-								.getAsJsonObject();
+						JsonObject json = parser.parse(row).getAsJsonObject();
 						String field1Value = json.get(field1Name).getAsString();
-						String field2Value = json.get(field2Name)
-								.getAsString();
-						return new Tuple2<String, String>(field1Value, field2Value);
+						String field2Value = json.get(field2Name).getAsString();
+						return new Tuple2<String, String>(field1Value,
+								field2Value);
 					}
 				});
 		return dataPairs;
 	}
 
-	private static JavaRDD<String> filterOutEmptyEntities(
-			JavaRDD<String> data) {
+	private static JavaRDD<String> filterOutEmptyEntities(JavaRDD<String> data) {
 		data = data.filter(new Function<String, Boolean>() {
 			public Boolean call(String news) throws Exception {
 				JsonParser parser = new JsonParser();
@@ -191,7 +196,7 @@ public class InfluenceCalculator {
 	}
 
 	private static JavaRDD<String> splitByRow(Path data) {
-		JavaRDD<String> dataByRow = sc.textFile(data.toString(), 1)
+		JavaRDD<String> dataByRow = sparkContext.textFile(data.toString(), 1)
 				.flatMap(new FlatMapFunction<String, String>() {
 					public Iterable<String> call(String s) throws Exception {
 						return Arrays.asList(s.split("\n"));
@@ -200,8 +205,8 @@ public class InfluenceCalculator {
 		return dataByRow;
 	}
 
-	private static void checkDataExists(Path inputData) throws Exception {
-		if (!fs.exists(inputData)) {
+	static void checkDataExists(Path inputData) throws Exception {
+		if (!hadoopFileSystem.exists(inputData)) {
 			throw new DataNotFoundException(inputData.toString());
 		}
 	}
