@@ -31,8 +31,7 @@ public class InfluenceCalculator {
 	static final Logger logger = LoggerFactory
 			.getLogger(InfluenceCalculator.class);
 
-	static private SparkConf conf = new SparkConf().setAppName(
-			"The-social-side-of-the-news").setMaster("local[1]");
+	static private SparkConf conf = new SparkConf().setAppName("The-social-side-of-the-news").setMaster("local[1]");
 	static private JavaSparkContext sparkContext;
 	static private FileSystem hadoopFileSystem;
 
