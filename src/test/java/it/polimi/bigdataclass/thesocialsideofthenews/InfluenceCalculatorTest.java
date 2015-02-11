@@ -1,8 +1,7 @@
 package it.polimi.bigdataclass.thesocialsideofthenews;
 
-import static org.junit.Assert.*;
-
 import java.io.IOException;
+import java.net.URISyntaxException;
 
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
@@ -17,7 +16,7 @@ public class InfluenceCalculatorTest {
 	private Config config;
 
 	@Before
-	public void setUp() throws IOException {
+	public void setUp() throws IOException, URISyntaxException {
 		System.clearProperty("spark.driver.port");
 		System.clearProperty("spark.hostPort");
 
@@ -26,10 +25,13 @@ public class InfluenceCalculatorTest {
 		config = new Config();
 		sc = new SparkContext(conf);
 		InfluenceCalculator.initHadoopFileSystem();
+		
+		InfluenceCalculator.hadoopFileSystem.copyFromLocalFile(new Path(getClass().getResource("/tweets.json").toURI()),new Path(config.tweetsPath));
+		InfluenceCalculator.hadoopFileSystem.copyFromLocalFile(new Path(getClass().getResource("/news.json").toURI()),new Path(config.newsPath));
 	}
 
 	@Test
-	public void inputDataShouldExist() throws Exception {
+	public void inputDataShouldExist() throws Exception {		
 		Path inputTweets = new Path(config.tweetsPath);
 		InfluenceCalculator.checkDataExists(inputTweets);
 	}
