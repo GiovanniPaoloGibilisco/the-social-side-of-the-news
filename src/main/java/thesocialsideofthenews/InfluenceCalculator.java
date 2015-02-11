@@ -46,9 +46,9 @@ public class InfluenceCalculator {
 			checkDataExists(inputTweets);
 			checkDataExists(inputNews);
 
-			JavaRDD<String> news = splitByRow(inputNews);
+			JavaRDD<String> newsByRow = splitByRow(inputNews);
 
-			news = news.filter(new Function<String, Boolean>() {
+			newsByRow = newsByRow.filter(new Function<String, Boolean>() {
 				public Boolean call(String news) throws Exception {
 					JsonParser parser = new JsonParser();
 					JsonObject jsonNews = parser.parse(news).getAsJsonObject();
@@ -56,7 +56,7 @@ public class InfluenceCalculator {
 				}
 			});
 
-			JavaPairRDD<String, String> newsEntityListMap = news
+			JavaPairRDD<String, String> newsEntityListMap = newsByRow
 					.mapToPair(new PairFunction<String, String, String>() {
 						public Tuple2<String, String> call(String news)
 								throws Exception {
