@@ -31,12 +31,14 @@ public class InfluenceCalculator {
 	static final Logger logger = LoggerFactory
 			.getLogger(InfluenceCalculator.class);
 
-	static private SparkConf conf = new SparkConf().setAppName("The-social-side-of-the-news");
-	static private JavaSparkContext sparkContext;
+	static Configuration hadoopConf;
 	static FileSystem hadoopFileSystem;
-
+	static SparkConf sparkConf;
+	static JavaSparkContext sparkContext;		
+	final static int min_entities_matching = 1;
+	
 	public static void main(String[] args) {
-
+		
 		try {
 			Config config = new Config();
 			JCommander jcm = new JCommander(config, args);
@@ -44,27 +46,29 @@ public class InfluenceCalculator {
 				jcm.usage();
 				return;
 			}
-			final int min_entities_matching = 1;
+						
 			
-			sparkContext = new JavaSparkContext(conf);
-			initHadoopFileSystem();
+			initHadoopFileSystem(new Configuration());
+			initSpark(new SparkConf().setAppName("The-social-side-of-the-news"));
+			
+			
 
 			Path inputTweets = new Path(config.tweetsPath);
 			Path inputNews = new Path(config.newsPath);
 
 			checkDataExists(inputTweets);
 			checkDataExists(inputNews);
-
-			JavaRDD<String> newsByRow = splitByRow(inputNews);
+			
+			JavaRDD<String> newsFile = sparkContext.textFile(inputNews.toString(), 1).cache();
+			JavaRDD<String> newsByRow = splitByRow(newsFile);
 			newsByRow = filterOutEmptyEntities(newsByRow);
-			JavaPairRDD<String, String> newsEntityListMap = extractPairs(
-					newsByRow, "link", "entities");
+			JavaPairRDD<String, String> newsEntityListMap = extractPairs(newsByRow, "link", "entities");
 			JavaPairRDD<String, String> entityNewsMap = splitValuesAndSwapKeyValue(newsEntityListMap);
 
-			JavaRDD<String> tweetsByRow = splitByRow(inputTweets);
+			JavaRDD<String> tweetFile = sparkContext.textFile(inputTweets.toString(), 1).cache();
+			JavaRDD<String> tweetsByRow = splitByRow(tweetFile );
 			tweetsByRow = filterOutEmptyEntities(tweetsByRow);
-			JavaPairRDD<String, String> tweetEntityListMap = extractPairs(
-					tweetsByRow, "timestamp", "entities");
+			JavaPairRDD<String, String> tweetEntityListMap = extractPairs(tweetsByRow, "timestamp", "entities");
 			JavaPairRDD<String, String> entityTweetMap = splitValuesAndSwapKeyValue(tweetEntityListMap);
 
 			// join entities and news with entities and tweets
@@ -73,14 +77,14 @@ public class InfluenceCalculator {
 
 			// filter entities without tweets or news
 			entityInfluenceMap
-					.filter(new Function<Tuple2<String, Tuple2<String, String>>, Boolean>() {
-						@Override
-						public Boolean call(
-								Tuple2<String, Tuple2<String, String>> match)
+			.filter(new Function<Tuple2<String, Tuple2<String, String>>, Boolean>() {
+				@Override
+				public Boolean call(
+						Tuple2<String, Tuple2<String, String>> match)
 								throws Exception {
-							return match._2._1 != null && match._2._2 != null;
-						}
-					});
+					return match._2._1 != null && match._2._2 != null;
+				}
+			});
 
 			// drop the entity, use url and timestamp as key and initialize the
 			// counters
@@ -89,7 +93,7 @@ public class InfluenceCalculator {
 						@Override
 						public Tuple2<Tuple2<String, String>, Integer> call(
 								Tuple2<String, Tuple2<String, String>> match)
-								throws Exception {
+										throws Exception {
 							return new Tuple2<Tuple2<String, String>, Integer>(
 									match._2, 1);
 						}
@@ -111,7 +115,7 @@ public class InfluenceCalculator {
 						@Override
 						public Boolean call(
 								Tuple2<Tuple2<String, String>, Integer> influence)
-								throws Exception {
+										throws Exception {
 							return influence._2 >= min_entities_matching;
 						}
 					});
@@ -122,7 +126,7 @@ public class InfluenceCalculator {
 						@Override
 						public Tuple2<String, String> call(
 								Tuple2<Tuple2<String, String>, Integer> matching)
-								throws Exception {
+										throws Exception {
 							return matching._1;
 						}
 					});
@@ -143,9 +147,14 @@ public class InfluenceCalculator {
 		}
 	}
 
-	static void initHadoopFileSystem() throws IOException {
-		Configuration hadoopConf = new Configuration();
-		hadoopFileSystem = FileSystem.get(hadoopConf);
+	static void initSpark(SparkConf sparkConf) {
+		InfluenceCalculator.sparkConf = sparkConf;
+		sparkContext = new JavaSparkContext(sparkConf);		
+	}
+
+	static void initHadoopFileSystem(Configuration hadoopConf) throws IOException {			
+		InfluenceCalculator.hadoopConf = hadoopConf;
+		hadoopFileSystem = FileSystem.get(InfluenceCalculator.hadoopConf);
 	}
 
 	private static JavaPairRDD<String, String> splitValuesAndSwapKeyValue(
@@ -166,7 +175,7 @@ public class InfluenceCalculator {
 		return newData;
 	}
 
-	private static JavaPairRDD<String, String> extractPairs(
+	static JavaPairRDD<String, String> extractPairs(
 			JavaRDD<String> data, final String field1Name, final String field2Name) {
 		JavaPairRDD<String, String> dataPairs = data
 				.mapToPair(new PairFunction<String, String, String>() {
@@ -183,7 +192,7 @@ public class InfluenceCalculator {
 		return dataPairs;
 	}
 
-	private static JavaRDD<String> filterOutEmptyEntities(JavaRDD<String> data) {
+	 static JavaRDD<String> filterOutEmptyEntities(JavaRDD<String> data) {
 		data = data.filter(new Function<String, Boolean>() {
 			public Boolean call(String news) throws Exception {
 				JsonParser parser = new JsonParser();
@@ -194,16 +203,14 @@ public class InfluenceCalculator {
 		return data;
 	}
 
-	static JavaRDD<String> splitByRow(Path data) {
-		JavaRDD<String> dataByRow = sparkContext.textFile(data.toString(), 1)
-				.flatMap(new FlatMapFunction<String, String>() {
+	static JavaRDD<String> splitByRow(JavaRDD<String> data) {		
+				return data.flatMap(new FlatMapFunction<String, String>() {
 					public Iterable<String> call(String s) throws Exception {
 						return Arrays.asList(s.split("\n"));
 					}
-				}).cache();
-		return dataByRow;
+				});		
 	}
-	
+
 	static void checkOutputGeneration(Path outputData) throws Exception{
 		if(!hadoopFileSystem.exists(outputData)){
 			throw new OutputNotProducedException(outputData.toString());

@@ -1,0 +1,8 @@
+{ "timestamp": "T1", "entities": ["E1", "E2"]}
+{ "timestamp": "T2", "entities": ["E1"]}
+{ "timestamp": "T3", "entities": ["E2"]}
+{ "timestamp": "T4", "entities": ["E4", "E3"]}
+{ "timestamp": "T5", "entities": ["E4"]}
+{ "timestamp": "T6", "entities": ["E5"]}
+{ "timestamp": "T7", "entities": ["E1"]}
+{ "timestamp": "T8", "entities": ["E2", "E3"]}
