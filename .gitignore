@@ -1,7 +1,6 @@
-/.settings
+.settings
 .classpath
 .project
 .DS_Store
-/target
-.*.md.html
-/bin/
+target
+bin
