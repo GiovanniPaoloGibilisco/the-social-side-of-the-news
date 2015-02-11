@@ -1,4 +1,4 @@
-package it.polimi.bigdataclass.thesocialsideofthenews;
+package it.polimi.tssotn.dataprocessor;
 
 import java.io.IOException;
 import java.util.ArrayList;

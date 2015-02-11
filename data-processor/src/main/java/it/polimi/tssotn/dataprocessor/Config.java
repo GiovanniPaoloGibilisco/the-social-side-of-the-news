@@ -1,4 +1,4 @@
-package it.polimi.bigdataclass.thesocialsideofthenews;
+package it.polimi.tssotn.dataprocessor;
 
 import com.beust.jcommander.Parameter;
 

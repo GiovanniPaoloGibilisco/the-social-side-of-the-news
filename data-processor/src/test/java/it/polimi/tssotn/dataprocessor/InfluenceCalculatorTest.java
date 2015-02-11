@@ -1,4 +1,7 @@
-package it.polimi.bigdataclass.thesocialsideofthenews;
+package it.polimi.tssotn.dataprocessor;
+
+import it.polimi.tssotn.dataprocessor.Config;
+import it.polimi.tssotn.dataprocessor.InfluenceCalculator;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
@@ -10,6 +13,7 @@ import org.apache.spark.api.java.JavaRDD;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
 import static org.junit.Assert.*;
 
 public class InfluenceCalculatorTest {

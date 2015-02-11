@@ -1,4 +1,4 @@
-package it.polimi.bigdataclass.thesocialsideofthenews;
+package it.polimi.tssotn.datapreprocessor;
 
 import java.util.HashSet;
 import java.util.Set;
