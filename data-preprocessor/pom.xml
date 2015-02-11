@@ -6,10 +6,10 @@
         <artifactId>the-social-side-of-the-news</artifactId>
         <version>0.0.1-SNAPSHOT</version>
     </parent>
-    <artifactId>data-loader</artifactId>
+    <artifactId>data-preprocessor</artifactId>
     <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
-    <name>Data Loader</name>
+    <name>Data Preprocessor</name>
     
     <dependencies>
         <dependency>
