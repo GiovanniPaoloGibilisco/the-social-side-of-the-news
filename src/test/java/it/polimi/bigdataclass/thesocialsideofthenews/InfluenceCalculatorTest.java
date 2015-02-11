@@ -6,9 +6,11 @@ import java.net.URISyntaxException;
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
 import org.apache.spark.SparkContext;
+import org.apache.spark.api.java.JavaRDD;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+import static org.junit.Assert.*;
 
 public class InfluenceCalculatorTest {
 
@@ -26,6 +28,7 @@ public class InfluenceCalculatorTest {
 		sc = new SparkContext(conf);
 		InfluenceCalculator.initHadoopFileSystem();
 		
+		
 		InfluenceCalculator.hadoopFileSystem.copyFromLocalFile(new Path(getClass().getResource("/tweets.json").toURI()),new Path(config.tweetsPath));
 		InfluenceCalculator.hadoopFileSystem.copyFromLocalFile(new Path(getClass().getResource("/news.json").toURI()),new Path(config.newsPath));
 	}
@@ -35,6 +38,31 @@ public class InfluenceCalculatorTest {
 		Path inputTweets = new Path(config.tweetsPath);
 		InfluenceCalculator.checkDataExists(inputTweets);
 	}
+	
+	@Test
+	public void splitByDataShouldProduce2News() {
+		Path inputNews = new Path(config.newsPath);
+		JavaRDD<String> splittedNews = InfluenceCalculator.splitByRow(inputNews);
+		assertTrue(splittedNews.count() == 2);
+	}
+	
+	@Test
+	public void splitByDataShouldProduce9Tweets() {
+		Path inputTweets = new Path(config.tweetsPath);
+		JavaRDD<String> splittedTweets = InfluenceCalculator.splitByRow(inputTweets);
+		assertTrue(splittedTweets.count() == 9);
+	}
+	
+	
+	@Test
+	public void outputFileShouldExist() throws Exception {
+		Path outputFile = new Path(config.outputPath);
+		InfluenceCalculator.checkOutputGeneration(outputFile);	
+		
+	}
+	
+	
+	
 
 	@After
 	public void tearDown() {

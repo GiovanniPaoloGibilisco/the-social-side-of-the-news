@@ -194,7 +194,7 @@ public class InfluenceCalculator {
 		return data;
 	}
 
-	private static JavaRDD<String> splitByRow(Path data) {
+	static JavaRDD<String> splitByRow(Path data) {
 		JavaRDD<String> dataByRow = sparkContext.textFile(data.toString(), 1)
 				.flatMap(new FlatMapFunction<String, String>() {
 					public Iterable<String> call(String s) throws Exception {
@@ -202,6 +202,12 @@ public class InfluenceCalculator {
 					}
 				}).cache();
 		return dataByRow;
+	}
+	
+	static void checkOutputGeneration(Path outputData) throws Exception{
+		if(!hadoopFileSystem.exists(outputData)){
+			throw new OutputNotProducedException(outputData.toString());
+		}
 	}
 
 	static void checkDataExists(Path inputData) throws Exception {
