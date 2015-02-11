@@ -167,7 +167,7 @@ public class InfluenceCalculator {
 	}
 
 	private static JavaPairRDD<String, String> extractPairs(
-			JavaRDD<String> data, String field1Name, String field2Name) {
+			JavaRDD<String> data, final String field1Name, final String field2Name) {
 		JavaPairRDD<String, String> dataPairs = data
 				.mapToPair(new PairFunction<String, String, String>() {
 					public Tuple2<String, String> call(String row)
