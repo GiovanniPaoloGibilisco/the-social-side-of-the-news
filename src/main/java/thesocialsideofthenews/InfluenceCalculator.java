@@ -15,6 +15,7 @@ import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
+import org.apache.spark.api.java.function.Function2;
 import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.PairFunction;
 import org.slf4j.Logger;
@@ -30,6 +31,10 @@ public class InfluenceCalculator {
 	static final Logger logger = LoggerFactory.getLogger(InfluenceCalculator.class);
 
 	public static void main(String[] args) {
+		
+		final int min_entities_matching = 1;
+		final String outputFile = (args[2] != null) ? args[2] : "output.txt"; 
+		
 		SparkConf conf = new SparkConf().setAppName("The social side of the news").setMaster("local[1]");
 		JavaSparkContext sc = new JavaSparkContext(conf);	
 		try {
@@ -38,7 +43,7 @@ public class InfluenceCalculator {
 			FileSystem fs = FileSystem.get(hadoopConf);
 
 			//check that tweets exists
-			Path inputTweets = new Path("tweets.json");			
+			Path inputTweets = new Path(args[0]);			
 			if(!fs.exists(inputTweets)){
 				logger.error("{} does not exist", inputTweets);			
 				sc.stop();
@@ -46,7 +51,7 @@ public class InfluenceCalculator {
 			}
 
 			//check that news exist
-			Path inputNews = new Path("news.json");			
+			Path inputNews = new Path(args[1]);			
 			if(!fs.exists(inputNews)){
 				logger.error("{} does not exist", inputNews);			
 				sc.stop();
@@ -128,10 +133,11 @@ public class InfluenceCalculator {
 				}
 			});
 			
+			//join entities and news with entities and tweets
+			JavaPairRDD<String, Tuple2<String, String>> entityInfluenceMap = entityNewsMap.join(entityTweetMap);
 			
-			JavaPairRDD<String, Tuple2<String, String>> influenceMap = entityNewsMap.join(entityTweetMap);
-			
-			influenceMap.filter(new Function<Tuple2<String,Tuple2<String,String>>, Boolean>() {				
+			//filter entities without tweets or news
+			entityInfluenceMap.filter(new Function<Tuple2<String,Tuple2<String,String>>, Boolean>() {				
 				@Override
 				public Boolean call(Tuple2<String, Tuple2<String, String>> match)
 						throws Exception {
@@ -139,14 +145,46 @@ public class InfluenceCalculator {
 				}
 			});
 
-			influenceMap.mapToPair(new PairFunction<Tuple2<String,Tuple2<String,String>>, String, String>() {
+			//drop the entity, use url and timestamp as key and initialize the counters
+			JavaPairRDD<Tuple2<String, String>, Integer> countingInfluenceMap = entityInfluenceMap.mapToPair(new PairFunction<Tuple2<String,Tuple2<String,String>>,Tuple2<String,String>, Integer>() {
 				@Override
-				public Tuple2<String, String> call(
+				public Tuple2<Tuple2<String, String>, Integer> call(
 						Tuple2<String, Tuple2<String, String>> match)
-						throws Exception {					
-					return match._2();
+						throws Exception {
+					return new Tuple2<Tuple2<String,String>, Integer>(match._2,1);
 				}
 			});
+			
+						
+			//sum up all the entities matched in tweets
+			JavaPairRDD<Tuple2<String, String>, Integer> summedInfluenceMap = countingInfluenceMap.reduceByKey(new Function2<Integer, Integer, Integer>() {				
+				@Override
+				public Integer call(Integer first, Integer second) throws Exception {					
+					return first+second;
+				}
+			});
+			
+			//filter tweets with not enought entities matching
+			summedInfluenceMap = summedInfluenceMap.filter(new Function<Tuple2<Tuple2<String,String>,Integer>, Boolean>() {				
+				@Override
+				public Boolean call(Tuple2<Tuple2<String, String>, Integer> influence)
+						throws Exception {		
+					return influence._2 >= min_entities_matching;
+				}
+			});
+			
+			//drop entity counter
+			JavaPairRDD<String, String> influenceMap = summedInfluenceMap.mapToPair(new PairFunction<Tuple2<Tuple2<String,String>,Integer>, String, String>() {
+				@Override
+				public Tuple2<String, String> call(
+						Tuple2<Tuple2<String, String>, Integer> matching)
+						throws Exception {				
+					return matching._1;
+				}
+			});
+			
+			
+			influenceMap.saveAsTextFile(outputFile);
 			
 			
 
