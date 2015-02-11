@@ -1,4 +1,4 @@
-package thesocialsideofthenews;
+package it.polimi.bigdataclass.thesocialsideofthenews;
 
 public class DataNotFoundException extends Exception {
 

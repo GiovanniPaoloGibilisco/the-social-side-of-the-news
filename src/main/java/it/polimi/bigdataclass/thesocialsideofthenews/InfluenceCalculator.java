@@ -1,4 +1,4 @@
-package thesocialsideofthenews;
+package it.polimi.bigdataclass.thesocialsideofthenews;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -22,6 +22,8 @@ import org.slf4j.LoggerFactory;
 
 import scala.Tuple2;
 
+import com.beust.jcommander.JCommander;
+import com.beust.jcommander.ParameterException;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -30,105 +32,39 @@ public class InfluenceCalculator {
 			.getLogger(InfluenceCalculator.class);
 
 	static private SparkConf conf = new SparkConf().setAppName(
-			"The social side of the news").setMaster("local[1]");
+			"The-social-side-of-the-news").setMaster("local[1]");
 	static private JavaSparkContext sc = new JavaSparkContext(conf);
 	static private FileSystem fs;
 
 	public static void main(String[] args) {
 
-		final int min_entities_matching = 1;
-		final String outputFile = (args[2] != null) ? args[2] : "output.txt";
-
 		try {
+			Config config = new Config();
+			JCommander jcm = new JCommander(config, args);
+			if (config.help) {
+				jcm.usage();
+				return;
+			}
+			final int min_entities_matching = 1;
 
 			Configuration hadoopConf = new Configuration();
 			fs = FileSystem.get(hadoopConf);
 
-			Path inputTweets = new Path(args[0]);
-			Path inputNews = new Path(args[1]);
+			Path inputTweets = new Path(config.tweetsPath);
+			Path inputNews = new Path(config.newsPath);
 
 			checkDataExists(inputTweets);
 			checkDataExists(inputNews);
 
 			JavaRDD<String> newsByRow = splitByRow(inputNews);
+			newsByRow = filterOutEmptyEntities(newsByRow);
+			JavaPairRDD<String, String> newsEntityListMap = extractPairs(newsByRow,"link","entities");
+			JavaPairRDD<String, String> entityNewsMap = splitValuesAndSwapKeyValue(newsEntityListMap);
 
-			newsByRow = newsByRow.filter(new Function<String, Boolean>() {
-				public Boolean call(String news) throws Exception {
-					JsonParser parser = new JsonParser();
-					JsonObject jsonNews = parser.parse(news).getAsJsonObject();
-					return jsonNews.get("entities") != null;
-				}
-			});
-
-			JavaPairRDD<String, String> newsEntityListMap = newsByRow
-					.mapToPair(new PairFunction<String, String, String>() {
-						public Tuple2<String, String> call(String news)
-								throws Exception {
-							JsonParser parser = new JsonParser();
-							JsonObject jsonNews = parser.parse(news)
-									.getAsJsonObject();
-							String link = jsonNews.get("link").getAsString();
-							String entities = jsonNews.get("entities")
-									.getAsString();
-							return new Tuple2<String, String>(link, entities);
-						}
-					});
-
-			JavaPairRDD<String, String> entityNewsMap = newsEntityListMap
-					.flatMapToPair(new PairFlatMapFunction<Tuple2<String, String>, String, String>() {
-						public Iterable<Tuple2<String, String>> call(
-								Tuple2<String, String> news) throws Exception {
-							List<String> entities = Arrays.asList(news._2
-									.split(","));
-							List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String, String>>();
-							for (String entity : entities) {
-								newsList.add(new Tuple2<String, String>(entity,
-										news._1));
-							}
-							return newsList;
-						}
-					});
-
-			JavaRDD<String> tweets = splitByRow(inputTweets);
-
-			tweets = tweets.filter(new Function<String, Boolean>() {
-				public Boolean call(String tweet) throws Exception {
-					JsonParser parser = new JsonParser();
-					JsonObject jsonTweet = parser.parse(tweet)
-							.getAsJsonObject();
-					return jsonTweet.get("entities") != null;
-				}
-			});
-
-			JavaPairRDD<String, String> tweetEntityListMap = tweets
-					.mapToPair(new PairFunction<String, String, String>() {
-						public Tuple2<String, String> call(String tweet)
-								throws Exception {
-							JsonParser parser = new JsonParser();
-							JsonObject jsonTweet = parser.parse(tweet)
-									.getAsJsonObject();
-							String link = jsonTweet.get("timestamp")
-									.getAsString();
-							String entities = jsonTweet.get("entities")
-									.getAsString();
-							return new Tuple2<String, String>(link, entities);
-						}
-					});
-
-			JavaPairRDD<String, String> entityTweetMap = tweetEntityListMap
-					.flatMapToPair(new PairFlatMapFunction<Tuple2<String, String>, String, String>() {
-						public Iterable<Tuple2<String, String>> call(
-								Tuple2<String, String> tweet) throws Exception {
-							List<String> entities = Arrays.asList(tweet._2
-									.split(","));
-							List<Tuple2<String, String>> tweets = new ArrayList<Tuple2<String, String>>();
-							for (String entity : entities) {
-								tweets.add(new Tuple2<String, String>(tweet._1,
-										entity));
-							}
-							return tweets;
-						}
-					});
+			JavaRDD<String> tweetsByRow = splitByRow(inputTweets);
+			tweetsByRow = filterOutEmptyEntities(tweetsByRow);
+			JavaPairRDD<String, String> tweetEntityListMap = extractPairs(tweetsByRow, "timestamp", "entities");
+			JavaPairRDD<String, String> entityTweetMap = splitValuesAndSwapKeyValue(tweetEntityListMap);
 
 			// join entities and news with entities and tweets
 			JavaPairRDD<String, Tuple2<String, String>> entityInfluenceMap = entityNewsMap
@@ -190,17 +126,68 @@ public class InfluenceCalculator {
 						}
 					});
 
-			influenceMap.saveAsTextFile(outputFile);
+			influenceMap.saveAsTextFile(config.outputPath);
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
 		} catch (DataNotFoundException e) {
 			logger.error("Input Data not found", e);
+		} catch (ParameterException e) {
+			logger.error("Wrong parameters. Required parameters: --newsPath, --tweetPath, --outputPath");
 		} catch (Exception e) {
 			logger.error("Unknown error", e);
 		} finally {
 			sc.stop();
 		}
+	}
+
+	private static JavaPairRDD<String, String> splitValuesAndSwapKeyValue(
+			JavaPairRDD<String, String> data) {
+		JavaPairRDD<String, String> newData = data
+				.flatMapToPair(new PairFlatMapFunction<Tuple2<String, String>, String, String>() {
+					public Iterable<Tuple2<String, String>> call(
+							Tuple2<String, String> pair) throws Exception {
+						List<String> values = Arrays.asList(pair._2
+								.split(","));
+						List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String, String>>();
+						for (String value : values) {
+							newsList.add(new Tuple2<String, String>(value,
+									pair._1));
+						}
+						return newsList;
+					}
+				});
+		return newData;
+	}
+
+	private static JavaPairRDD<String, String> extractPairs(
+			JavaRDD<String> data, String field1Name, String field2Name) {
+		JavaPairRDD<String, String> dataPairs = data
+				.mapToPair(new PairFunction<String, String, String>() {
+					public Tuple2<String, String> call(String row)
+							throws Exception {
+						JsonParser parser = new JsonParser();
+						JsonObject json = parser.parse(row)
+								.getAsJsonObject();
+						String field1Value = json.get(field1Name).getAsString();
+						String field2Value = json.get(field2Name)
+								.getAsString();
+						return new Tuple2<String, String>(field1Value, field2Value);
+					}
+				});
+		return dataPairs;
+	}
+
+	private static JavaRDD<String> filterOutEmptyEntities(
+			JavaRDD<String> data) {
+		data = data.filter(new Function<String, Boolean>() {
+			public Boolean call(String news) throws Exception {
+				JsonParser parser = new JsonParser();
+				JsonObject jsonNews = parser.parse(news).getAsJsonObject();
+				return jsonNews.get("entities") != null;
+			}
+		});
+		return data;
 	}
 
 	private static JavaRDD<String> splitByRow(Path data) {

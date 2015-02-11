@@ -1,6 +1,7 @@
-package thesocialsideofthenews;
+package it.polimi.bigdataclass.thesocialsideofthenews;
 
 import static org.junit.Assert.assertFalse;
+import it.polimi.bigdataclass.thesocialsideofthenews.NewsEntityExtractor;
 
 import java.util.Set;
 
