@@ -22,6 +22,7 @@ import scala.Tuple2;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
+import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
@@ -48,7 +49,7 @@ public class InfluenceCalculator {
 
 
 			initHadoopFileSystem(new Configuration());
-			initSpark(new SparkConf().setAppName("The-social-side-of-the-news"));
+			initSpark(new SparkConf().setAppName("The-social-side-of-the-news").setMaster("local[1]"));
 
 
 
@@ -149,7 +150,7 @@ public class InfluenceCalculator {
 		hadoopFileSystem = FileSystem.get(InfluenceCalculator.hadoopConf);
 	}
 
-	private static JavaPairRDD<String, String> splitValuesAndSwapKeyValue(
+	static JavaPairRDD<String, String> splitValuesAndSwapKeyValue(
 			JavaPairRDD<String, String> data) {
 		JavaPairRDD<String, String> newData = data
 				.flatMapToPair(pair -> {
@@ -188,13 +189,21 @@ public class InfluenceCalculator {
 						String key;
 						if(keyElement.isJsonArray())
 							key = keyElement.getAsJsonArray().getAsString();
-						key = keyElement.getAsString();
+						else 
+							key = keyElement.getAsString();
 						
 						JsonElement valueElement = json.get(field2Name);
 						String value;
-						if(valueElement.isJsonArray())
-							value = valueElement.getAsJsonArray().getAsString();
-						value = valueElement.getAsString();						
+						if(valueElement.isJsonArray()){
+							value = "";
+							JsonArray valueArray = valueElement.getAsJsonArray();
+							for (JsonElement valueJsonElement : valueArray) {
+								value += valueJsonElement.getAsString()+",";
+							}
+							value = value.substring(0, value.lastIndexOf(','));
+						}
+						else
+							value = valueElement.getAsString();						
 						return new Tuple2<String, String>(key,value);
 					}
 
