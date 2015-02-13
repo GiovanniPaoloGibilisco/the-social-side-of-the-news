@@ -12,10 +12,8 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
 import org.apache.spark.api.java.function.Function2;
-import org.apache.spark.api.java.function.PairFlatMapFunction;
 import org.apache.spark.api.java.function.PairFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -24,6 +22,7 @@ import scala.Tuple2;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
+import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 
@@ -36,9 +35,9 @@ public class InfluenceCalculator {
 	static SparkConf sparkConf;
 	static JavaSparkContext sparkContext;		
 	final static int min_entities_matching = 1;
-	
+
 	public static void main(String[] args) {
-		
+
 		try {
 			Config config = new Config();
 			JCommander jcm = new JCommander(config, args);
@@ -46,19 +45,19 @@ public class InfluenceCalculator {
 				jcm.usage();
 				return;
 			}
-						
-			
+
+
 			initHadoopFileSystem(new Configuration());
 			initSpark(new SparkConf().setAppName("The-social-side-of-the-news"));
-			
-			
+
+
 
 			Path inputTweets = new Path(config.tweetsPath);
 			Path inputNews = new Path(config.newsPath);
 
 			checkDataExists(inputTweets);
 			checkDataExists(inputNews);
-			
+
 			JavaRDD<String> newsFile = sparkContext.textFile(inputNews.toString(), 1).cache();
 			JavaRDD<String> newsByRow = splitByRow(newsFile);
 			newsByRow = filterOutEmptyEntities(newsByRow);
@@ -122,14 +121,7 @@ public class InfluenceCalculator {
 
 			// drop entity counter
 			JavaPairRDD<String, String> influenceMap = summedInfluenceMap
-					.mapToPair(new PairFunction<Tuple2<Tuple2<String, String>, Integer>, String, String>() {
-						@Override
-						public Tuple2<String, String> call(
-								Tuple2<Tuple2<String, String>, Integer> matching)
-										throws Exception {
-							return matching._1;
-						}
-					});
+					.mapToPair(matching -> matching._1);
 
 			influenceMap.saveAsTextFile(config.outputPath);
 
@@ -160,55 +152,72 @@ public class InfluenceCalculator {
 	private static JavaPairRDD<String, String> splitValuesAndSwapKeyValue(
 			JavaPairRDD<String, String> data) {
 		JavaPairRDD<String, String> newData = data
-				.flatMapToPair(new PairFlatMapFunction<Tuple2<String, String>, String, String>() {
-					public Iterable<Tuple2<String, String>> call(
-							Tuple2<String, String> pair) throws Exception {
-						List<String> values = Arrays.asList(pair._2.split(","));
-						List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String, String>>();
-						for (String value : values) {
-							newsList.add(new Tuple2<String, String>(value,
-									pair._1));
-						}
-						return newsList;
+				.flatMapToPair(pair -> {
+					List<String> values = Arrays.asList(pair._2.split(","));
+					List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String, String>>();
+					for (String value : values) {
+						newsList.add(new Tuple2<String, String>(value,
+								pair._1));
 					}
+					return newsList;
 				});
 		return newData;
 	}
 
+	/**
+	 * Generets a PairRDD using as key the element the element in the json corresponding with the first parameter and as value the element corresponding with the second element. In case elements are arrays all the elements of the arrays are used
+	 * @param data an RDD containing one JSON object per string
+	 * @param field1Name the name of the element to use as key  
+	 * @param field2Name the name of thelement to use as value
+	 * @return
+	 */
 	static JavaPairRDD<String, String> extractPairs(
-			JavaRDD<String> data, final String field1Name, final String field2Name) {
+			JavaRDD<String> data, String field1Name, String field2Name) {
 		JavaPairRDD<String, String> dataPairs = data
 				.mapToPair(new PairFunction<String, String, String>() {
+
+					private String field1Name;
+					private String field2Name;
+
 					public Tuple2<String, String> call(String row)
 							throws Exception {
 						JsonParser parser = new JsonParser();
-						JsonObject json = parser.parse(row).getAsJsonObject();
-						String field1Value = json.get(field1Name).getAsString();
-						String field2Value = json.get(field2Name).getAsString();
-						return new Tuple2<String, String>(field1Value,
-								field2Value);
+						JsonObject json = parser.parse(row).getAsJsonObject();						
+						
+						JsonElement keyElement = json.get(field1Name);
+						String key;
+						if(keyElement.isJsonArray())
+							key = keyElement.getAsJsonArray().getAsString();
+						key = keyElement.getAsString();
+						
+						JsonElement valueElement = json.get(field2Name);
+						String value;
+						if(valueElement.isJsonArray())
+							value = valueElement.getAsJsonArray().getAsString();
+						value = valueElement.getAsString();						
+						return new Tuple2<String, String>(key,value);
 					}
-				});
+
+					public PairFunction<String, String, String> initialize(String field1Name, String field2Name){
+						this.field1Name = field1Name;
+						this.field2Name = field2Name;
+						return this;
+					}
+				}.initialize(field1Name, field2Name));
 		return dataPairs;
 	}
 
-	 static JavaRDD<String> filterOutEmptyEntities(JavaRDD<String> data) {
-		data = data.filter(new Function<String, Boolean>() {
-			public Boolean call(String news) throws Exception {
-				JsonParser parser = new JsonParser();
-				JsonObject jsonNews = parser.parse(news).getAsJsonObject();
-				return jsonNews.get("entities") != null;
-			}
+	static JavaRDD<String> filterOutEmptyEntities(JavaRDD<String> data) {
+		data = data.filter(news -> {
+			JsonParser parser = new JsonParser();
+			JsonObject jsonNews = parser.parse(news).getAsJsonObject();
+			return jsonNews.get("entities") != null;
 		});
 		return data;
 	}
 
 	static JavaRDD<String> splitByRow(JavaRDD<String> data) {		
-				return data.flatMap(new FlatMapFunction<String, String>() {
-					public Iterable<String> call(String s) throws Exception {
-						return Arrays.asList(s.split("\n"));
-					}
-				});		
+		return data.flatMap(s -> Arrays.asList(s.split("\n")));		
 	}
 
 	static void checkOutputGeneration(Path outputData) throws Exception{

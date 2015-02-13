@@ -4,6 +4,8 @@ import static org.junit.Assert.*;
 
 import java.io.IOException;
 import java.net.URISyntaxException;
+import java.util.ArrayList;
+import java.util.List;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -15,6 +17,8 @@ import org.apache.spark.api.java.JavaSparkContext;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
+
+import scala.Tuple2;
 
 public class InfluenceCalculatorTest {
 	private SparkConf sparkConf; 
@@ -82,12 +86,21 @@ public class InfluenceCalculatorTest {
 
 
 	@Test 
-	public void extractPairsShouldCreateTweetEntityPairs(){
+	public void extractPairsShouldCreateNewsEntityPairs(){
 		Path newsFilePath = new Path(config.newsPath);
 		JavaRDD<String>  newsFile = sc.textFile(newsFilePath.toString(), 1);
 		JavaRDD<String> splittedNews = InfluenceCalculator.splitByRow(newsFile);
-		JavaPairRDD<String, String> newsEntityListMap = InfluenceCalculator.extractPairs(splittedNews, "timestamp", "entities");
-		//TODO: Create the correct map and check it is equal
+		JavaPairRDD<String, String> newsEntityListMap = InfluenceCalculator.extractPairs(splittedNews, "link", "entities");
+		
+		List<Tuple2<String, String>> collectedNewsEntity = newsEntityListMap.collect();
+		
+		List <Tuple2<String,String>> expectedNewsEntities = new ArrayList<Tuple2<String,String>>();
+		expectedNewsEntities.add(new Tuple2<String, String>("N1", "E1"));
+		expectedNewsEntities.add(new Tuple2<String, String>("N2", "E2,E3"));
+		
+		assertTrue(collectedNewsEntity.equals(expectedNewsEntities));
+		
+		
 		
 	}
 
