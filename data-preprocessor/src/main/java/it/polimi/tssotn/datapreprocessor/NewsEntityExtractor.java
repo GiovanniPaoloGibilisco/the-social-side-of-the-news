@@ -13,7 +13,7 @@ import com.sun.jersey.api.client.WebResource;
 
 public class NewsEntityExtractor {
 
-	public static Set<String> extractEntities(String url) {
+	static Set<String> extractEntities(String url) {
 		
 		final String endpoint = "https://api.dandelion.eu/datatxt/nex/v1";
 		final String appID = "07ccdf25";

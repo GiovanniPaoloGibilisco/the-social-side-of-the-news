@@ -1,4 +1,4 @@
-package it.polimi.tssorn.datapreprocessor;
+package it.polimi.tssotn.datapreprocessor;
 
 import static org.junit.Assert.assertFalse;
 import it.polimi.tssotn.datapreprocessor.NewsEntityExtractor;

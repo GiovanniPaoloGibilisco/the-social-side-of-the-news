@@ -7,7 +7,6 @@
         <version>0.0.1-SNAPSHOT</version>
     </parent>
     <artifactId>data-loader</artifactId>
-    <version>0.0.1-SNAPSHOT</version>
     <packaging>jar</packaging>
     <name>Data Loader</name>
     
@@ -21,6 +20,11 @@
             <groupId>com.sun.jersey</groupId>
             <artifactId>jersey-json</artifactId>
             <version>1.17.1</version>
+        </dependency>
+        <dependency>
+        	<groupId>it.polimi.tssotn</groupId>
+        	<artifactId>common</artifactId>
+        	<version>${project.version}</version>
         </dependency>
     </dependencies>
 
