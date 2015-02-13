@@ -98,10 +98,17 @@ public class InfluenceCalculatorTest {
 		expectedNewsEntities.add(new Tuple2<String, String>("N1", "E1"));
 		expectedNewsEntities.add(new Tuple2<String, String>("N2", "E2,E3"));
 		
-		assertTrue(collectedNewsEntity.equals(expectedNewsEntities));
-		
-		
-		
+		assertTrue(collectedNewsEntity.equals(expectedNewsEntities));		
+	}
+	
+	@Test
+	public void splitByValueAndSwapShouldCreate3News(){
+		Path newsFilePath = new Path(config.newsPath);
+		JavaRDD<String>  newsFile = sc.textFile(newsFilePath.toString(), 1);
+		JavaRDD<String> splittedNews = InfluenceCalculator.splitByRow(newsFile);
+		JavaPairRDD<String, String> newsEntityListMap = InfluenceCalculator.extractPairs(splittedNews, "link", "entities");
+		JavaPairRDD<String, String> splitted = InfluenceCalculator.splitValuesAndSwapKeyValue(newsEntityListMap);
+		assertTrue(splitted.count() == (long) 3);
 	}
 
 
