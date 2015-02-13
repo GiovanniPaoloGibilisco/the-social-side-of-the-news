@@ -50,8 +50,8 @@ public class DataLoader {
 					"$offset", "$limit", 1000, 0, 3014, commonPars,
 					sparkContext);
 
-			SparkUtils.saveToFile(tweetsChunks, "loaded-data/tweets");
-			SparkUtils.saveToFile(newsChunks, "loaded-data/news");
+			tweetsChunks.saveAsTextFile("loaded-data/tweets");
+			newsChunks.saveAsTextFile("loaded-data/news");
 
 		} catch (Exception e) {
 			logger.error("Unknown error", e);

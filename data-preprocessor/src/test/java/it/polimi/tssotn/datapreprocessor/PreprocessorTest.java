@@ -6,7 +6,7 @@ import java.net.URISyntaxException;
 import org.junit.After;
 import org.junit.Before;
 
-public class PreProcessorTest {
+public class PreprocessorTest {
 
 	@Before
 	public void setUp() throws IOException, URISyntaxException {

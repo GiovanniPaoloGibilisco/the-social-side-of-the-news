@@ -1,5 +1,6 @@
 package it.polimi.tssotn.common;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
@@ -8,6 +9,7 @@ import java.util.Map;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
+import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
@@ -23,17 +25,18 @@ public class SparkUtilsTest {
 	private static final String newsDataURL = "https://api.dandelion.eu/datagems/v2/SpazioDati/milanotoday/data";
 	private static final String app_id = "5bb0e37c";
 	private static final String app_key = "593dc19bbaaa08aad799e6a57db362cf";
-	
+
 	private JavaSparkContext sparkContext;
+	private FileSystem hadoopFileSystem;
 
 	@Before
 	public void setUp() throws IOException {
 		System.clearProperty("spark.driver.port");
 		System.clearProperty("spark.hostPort");
 		Configuration hadoopConf = new Configuration();
-		FileSystem hadoopFileSystem = FileSystem.get(hadoopConf);
-		SparkConf sparkConf = new SparkConf()
-				.setAppName("tssotn-data-loader").setMaster("local[1]");
+		hadoopFileSystem = FileSystem.get(hadoopConf);
+		SparkConf sparkConf = new SparkConf().setAppName("tssotn-data-loader")
+				.setMaster("local[1]");
 		sparkContext = new JavaSparkContext(sparkConf);
 	}
 
@@ -43,18 +46,29 @@ public class SparkUtilsTest {
 		commonPars.put("$app_id", app_id);
 		commonPars.put("$app_key", app_key);
 		JavaRDD<JsonObject> tweetsChunks = SparkUtils.restToRDD(twitterDataURL,
-				"$offset", "$limit", 1000, 0, 2000, commonPars,sparkContext);
+				"$offset", "$limit", 1000, 0, 2000, commonPars, sparkContext);
 		assertTrue(tweetsChunks.count() == 2);
 	}
-	
+
 	@Test
 	public void milanoTodayDataShouldBeDownloaded() {
 		Map<String, String> commonPars = new HashMap<String, String>();
 		commonPars.put("$app_id", app_id);
 		commonPars.put("$app_key", app_key);
-		JavaRDD<JsonObject> milanoTodayChunks = SparkUtils.restToRDD(newsDataURL,
-				"$offset", "$limit", 500, 0, 3014, commonPars, sparkContext);
+		JavaRDD<JsonObject> milanoTodayChunks = SparkUtils.restToRDD(
+				newsDataURL, "$offset", "$limit", 500, 0, 3014, commonPars,
+				sparkContext);
 		assertTrue(milanoTodayChunks.count() > 0);
+	}
+
+	@Test
+	public void dataShouldBeLoadedAndThenDeleted() throws Exception {
+		Path tweetsLocalPath = new Path(getClass().getResource("/tweets.json").toURI());
+		Path tweetsHDFSPath = new Path("target/tweets.json");
+		hadoopFileSystem.copyFromLocalFile(tweetsLocalPath, tweetsHDFSPath);
+		assertTrue(hadoopFileSystem.exists(tweetsHDFSPath));
+		hadoopFileSystem.delete(tweetsHDFSPath, true);
+		assertFalse(hadoopFileSystem.exists(tweetsHDFSPath));
 	}
 
 	@After

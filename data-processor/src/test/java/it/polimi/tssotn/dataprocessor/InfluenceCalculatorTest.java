@@ -1,9 +1,9 @@
 package it.polimi.tssotn.dataprocessor;
 
-import static org.junit.Assert.*;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -21,7 +21,7 @@ import org.junit.Test;
 import scala.Tuple2;
 
 public class InfluenceCalculatorTest {
-	private SparkConf sparkConf; 
+	private SparkConf sparkConf;
 	private JavaSparkContext sc;
 	private Configuration hc;
 	private FileSystem hadoopFileSystem;
@@ -29,7 +29,7 @@ public class InfluenceCalculatorTest {
 	private final String filteredTweetsPath = "filteredTweets.json";
 
 	@Before
-	public void setUp() throws IOException, URISyntaxException {
+	public void setUp() throws Exception {
 		System.clearProperty("spark.driver.port");
 		System.clearProperty("spark.hostPort");
 
@@ -39,19 +39,21 @@ public class InfluenceCalculatorTest {
 		InfluenceCalculator.initHadoopFileSystem(hc);
 		hadoopFileSystem = InfluenceCalculator.hadoopFileSystem;
 
-		sparkConf= new SparkConf().setAppName("The-social-side-of-the-news").setMaster("local[1]");					
+		sparkConf = new SparkConf().setAppName("The-social-side-of-the-news")
+				.setMaster("local[1]");
 		InfluenceCalculator.initSpark(sparkConf);
 		sc = InfluenceCalculator.sparkContext;
 
-		InfluenceCalculator.hadoopFileSystem.copyFromLocalFile(new Path(getClass().getResource("/tweets.json").toURI()),new Path(config.tweetsPath));
-		InfluenceCalculator.hadoopFileSystem.copyFromLocalFile(new Path(getClass().getResource("/news.json").toURI()),new Path(config.newsPath));
-		InfluenceCalculator.hadoopFileSystem.copyFromLocalFile(new Path(getClass().getResource("/filteredTweets.json").toURI()),new Path(filteredTweetsPath));
-	}
-
-	@Test
-	public void inputDataShouldExist() throws Exception {		
-		Path inputTweets = new Path(config.tweetsPath);
-		InfluenceCalculator.checkDataExists(inputTweets);
+		hadoopFileSystem.copyFromLocalFile(
+				new Path(getClass().getResource("/tweets.json").toURI()),
+				new Path(config.tweetsPath));
+		hadoopFileSystem.copyFromLocalFile(
+				new Path(getClass().getResource("/news.json").toURI()),
+				new Path(config.newsPath));
+		hadoopFileSystem
+				.copyFromLocalFile(
+						new Path(getClass().getResource("/filteredTweets.json")
+								.toURI()), new Path(filteredTweetsPath));
 	}
 
 	@Test
@@ -65,53 +67,62 @@ public class InfluenceCalculatorTest {
 	@Test
 	public void splitByDataShouldProduce9Tweets() {
 		Path inputTweets = new Path(config.tweetsPath);
-		JavaRDD<String> tweetFile = sc.textFile(inputTweets.toString(), 1).cache();
-		JavaRDD<String> splittedTweets = InfluenceCalculator.splitByRow(tweetFile);
+		JavaRDD<String> tweetFile = sc.textFile(inputTweets.toString(), 1)
+				.cache();
+		JavaRDD<String> splittedTweets = InfluenceCalculator
+				.splitByRow(tweetFile);
 		assertTrue(splittedTweets.count() == 9);
 	}
 
 	@Test
-	public void filterOutEmptEntitiesShouldrRemove1Tweet(){
+	public void filterOutEmptEntitiesShouldrRemove1Tweet() {
 		Path inputTweets = new Path(config.tweetsPath);
 		JavaRDD<String> tweetFile = sc.textFile(inputTweets.toString(), 1);
-		JavaRDD<String> splittedTweets = InfluenceCalculator.splitByRow(tweetFile);
-		JavaRDD<String> noEmptyTweets = InfluenceCalculator.filterOutEmptyEntities(splittedTweets);
+		JavaRDD<String> splittedTweets = InfluenceCalculator
+				.splitByRow(tweetFile);
+		JavaRDD<String> noEmptyTweets = InfluenceCalculator
+				.filterOutEmptyEntities(splittedTweets);
 
 		Path filteredTweets = new Path(filteredTweetsPath);
-		JavaRDD<String> filteredTweeFile = sc.textFile(filteredTweets.toString(), 1);
-		JavaRDD<String> splittedFilteredTweets = InfluenceCalculator.splitByRow(filteredTweeFile);
+		JavaRDD<String> filteredTweeFile = sc.textFile(
+				filteredTweets.toString(), 1);
+		JavaRDD<String> splittedFilteredTweets = InfluenceCalculator
+				.splitByRow(filteredTweeFile);
 
-		assertEquals(splittedFilteredTweets.collect(), noEmptyTweets.collect());		
+		assertEquals(splittedFilteredTweets.collect(), noEmptyTweets.collect());
 	}
 
-
-	@Test 
-	public void extractPairsShouldCreateNewsEntityPairs(){
+	@Test
+	public void extractPairsShouldCreateNewsEntityPairs() {
 		Path newsFilePath = new Path(config.newsPath);
-		JavaRDD<String>  newsFile = sc.textFile(newsFilePath.toString(), 1);
+		JavaRDD<String> newsFile = sc.textFile(newsFilePath.toString(), 1);
 		JavaRDD<String> splittedNews = InfluenceCalculator.splitByRow(newsFile);
-		JavaPairRDD<String, String> newsEntityListMap = InfluenceCalculator.extractPairs(splittedNews, "link", "entities");
-		
-		List<Tuple2<String, String>> collectedNewsEntity = newsEntityListMap.collect();
-		
-		List <Tuple2<String,String>> expectedNewsEntities = new ArrayList<Tuple2<String,String>>();
+		JavaPairRDD<String, String> newsEntityListMap = InfluenceCalculator
+				.extractPairs(splittedNews, "link", "entities");
+
+		List<Tuple2<String, String>> collectedNewsEntity = newsEntityListMap
+				.collect();
+
+		List<Tuple2<String, String>> expectedNewsEntities = new ArrayList<Tuple2<String, String>>();
 		expectedNewsEntities.add(new Tuple2<String, String>("N1", "E1"));
 		expectedNewsEntities.add(new Tuple2<String, String>("N2", "E2,E3"));
-		
+
 		assertTrue(collectedNewsEntity.equals(expectedNewsEntities));
-		
-		
-		
+
 	}
 
-
-
 	@After
-	public void tearDown() {
-		sc.stop();
-		sc = null;
-		System.clearProperty("spark.driver.port");
-		System.clearProperty("spark.hostPort");
+	public void tearDown() throws IllegalArgumentException, IOException {
+		try {
+			hadoopFileSystem.delete(new Path(config.tweetsPath), false);
+			hadoopFileSystem.delete(new Path(config.newsPath), false);
+			hadoopFileSystem.delete(new Path(filteredTweetsPath), false);
+		} finally {
+			sc.stop();
+			sc = null;
+			System.clearProperty("spark.driver.port");
+			System.clearProperty("spark.hostPort");
+		}
 	}
 
 }
