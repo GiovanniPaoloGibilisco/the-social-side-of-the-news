@@ -15,7 +15,7 @@ import com.sun.jersey.api.client.Client;
 import com.sun.jersey.api.client.ClientResponse;
 
 public class SparkUtils {
-	
+
 	public static JavaRDD<JsonObject> restToRDD(String url,
 			String offsetParameterName, String limitParameterName,
 			int chunkSize, int start, int end,
@@ -55,9 +55,5 @@ public class SparkUtils {
 			return parser.parse(response.getEntity(String.class))
 					.getAsJsonObject();
 		});
-	}
-
-	public static void saveToFile(JavaRDD<JsonObject> data, String outputPath) {
-		data.saveAsTextFile(outputPath);
 	}
 }

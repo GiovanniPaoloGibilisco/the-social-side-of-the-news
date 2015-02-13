@@ -13,10 +13,6 @@ public class NewsEntityExtractorTest {
 	public void entitiesInDerbyShouldNotBeEmpty() {
 		Set<String> entities = NewsEntityExtractor.extractEntities("http://www.milanotoday.it/sport/inter-milan-1-0-palacio-22-dicembre-2013.html");
 		assertFalse(entities.isEmpty());
-		System.out.println("count: "+entities.size());
-		for (String entity: entities) {
-			System.out.println(entity);
-		}
 	}
 
 }
