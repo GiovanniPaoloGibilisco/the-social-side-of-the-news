@@ -24,6 +24,9 @@ public class DataLoader {
 	private static final String newsDataURL = "https://api.dandelion.eu/datagems/v2/SpazioDati/milanotoday/data";
 	private static final String app_id = "5bb0e37c";
 	private static final String app_key = "593dc19bbaaa08aad799e6a57db362cf";
+	
+	private static final String originalNewsLocalPath = "/Users/miglie/Dropbox/University/PhD/Courses/Big Data/data/original/news";
+	private static final String originalTweetsLocalPath = "/Users/miglie/Dropbox/University/PhD/Courses/Big Data/data/original/tweets";
 
 	private static boolean runLocal = true;
 
@@ -50,8 +53,8 @@ public class DataLoader {
 					"$offset", "$limit", 1000, 0, 3014, commonPars,
 					sparkContext);
 
-			tweetsChunks.saveAsTextFile("loaded-data/tweets");
-			newsChunks.saveAsTextFile("loaded-data/news");
+			tweetsChunks.saveAsTextFile(originalTweetsLocalPath);
+			newsChunks.saveAsTextFile(originalNewsLocalPath);
 
 		} catch (Exception e) {
 			logger.error("Unknown error", e);
