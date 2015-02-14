@@ -1,4 +1,4 @@
-package it.polimi.tssotn.dataprocessor;
+package it.polimi.tssotn.dataloader;
 
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
@@ -9,7 +9,7 @@ public class Config {
 
 	private Config() {
 	}
-
+	
 	public static Config getInstance() {
 		if (_instance == null) {
 			_instance = new Config();
@@ -21,26 +21,19 @@ public class Config {
 		_instance = new Config();
 		new JCommander(_instance, args);
 	}
-
+	
 	@Parameter(names = { "-t", "--tweetPath" }, required = true)
 	public String tweetsPath;
 
 	@Parameter(names = { "-n", "--newsPath" }, required = true)
 	public String newsPath;
-
-	@Parameter(names = { "-o", "--outputPath" }, required = true)
-	public String outputPath;
-
+	
 	@Parameter(names = { "-i", "--appid" }, required = true)
 	public String app_id;
-
+	
 	@Parameter(names = { "-k", "--appkey" }, required = true)
 	public String app_key;
-
+	
 	@Parameter(names = { "-l", "--runLocal" })
 	public boolean runLocal;
-
-	@Parameter(names = { "-m", "--minMatches" })
-	public Integer minMatches = 1;
-
 }

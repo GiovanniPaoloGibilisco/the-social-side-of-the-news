@@ -2,6 +2,7 @@ package it.polimi.tssotn.common;
 
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
+import it.polimi.tssotn.dataloader.DataLoader;
 
 import java.io.IOException;
 import java.util.HashMap;
@@ -19,7 +20,7 @@ import org.junit.Test;
 
 import com.google.gson.JsonObject;
 
-public class SparkUtilsTest {
+public class DataLoaderTest {
 
 	private static final String twitterDataURL = "https://api.dandelion.eu/datagems/v2/SpazioDati/social-pulse-milano/data";
 	private static final String newsDataURL = "https://api.dandelion.eu/datagems/v2/SpazioDati/milanotoday/data";
@@ -45,9 +46,9 @@ public class SparkUtilsTest {
 		Map<String, String> commonPars = new HashMap<String, String>();
 		commonPars.put("$app_id", app_id);
 		commonPars.put("$app_key", app_key);
-		JavaRDD<JsonObject> tweetsChunks = SparkUtils.restToRDD(twitterDataURL,
+		JavaRDD<String> tweetsChunks = DataLoader.restToRDD(twitterDataURL,
 				"$offset", "$limit", 1000, 0, 2000, commonPars, sparkContext);
-		assertTrue(tweetsChunks.count() == 2);
+		assertTrue(tweetsChunks.count() > 0);
 	}
 
 	@Test
@@ -55,20 +56,10 @@ public class SparkUtilsTest {
 		Map<String, String> commonPars = new HashMap<String, String>();
 		commonPars.put("$app_id", app_id);
 		commonPars.put("$app_key", app_key);
-		JavaRDD<JsonObject> milanoTodayChunks = SparkUtils.restToRDD(
+		JavaRDD<String> milanoTodayChunks = DataLoader.restToRDD(
 				newsDataURL, "$offset", "$limit", 500, 0, 3014, commonPars,
 				sparkContext);
 		assertTrue(milanoTodayChunks.count() > 0);
-	}
-
-	@Test
-	public void dataShouldBeLoadedAndThenDeleted() throws Exception {
-		Path tweetsLocalPath = new Path(getClass().getResource("/tweets.json").toURI());
-		Path tweetsHDFSPath = new Path("target/tweets.json");
-		hadoopFileSystem.copyFromLocalFile(tweetsLocalPath, tweetsHDFSPath);
-		assertTrue(hadoopFileSystem.exists(tweetsHDFSPath));
-		hadoopFileSystem.delete(tweetsHDFSPath, true);
-		assertFalse(hadoopFileSystem.exists(tweetsHDFSPath));
 	}
 
 	@After

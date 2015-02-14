@@ -21,11 +21,6 @@
             <artifactId>jersey-json</artifactId>
             <version>1.17.1</version>
         </dependency>
-        <dependency>
-        	<groupId>it.polimi.tssotn</groupId>
-        	<artifactId>common</artifactId>
-        	<version>${project.version}</version>
-        </dependency>
     </dependencies>
 
     <build>

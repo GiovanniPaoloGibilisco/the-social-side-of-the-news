@@ -2,8 +2,11 @@ package it.polimi.tssotn.dataprocessor;
 
 import java.io.IOException;
 import java.util.ArrayList;
-import java.util.Arrays;
+import java.util.Date;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
+import java.util.UUID;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -12,51 +15,78 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
-import org.apache.spark.api.java.function.Function;
-import org.apache.spark.api.java.function.Function2;
-import org.apache.spark.api.java.function.PairFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import scala.Tuple2;
+import scala.Tuple3;
 
-import com.beust.jcommander.JCommander;
 import com.beust.jcommander.ParameterException;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.sun.jersey.api.client.Client;
+import com.sun.jersey.api.client.ClientResponse;
+import com.sun.jersey.api.client.WebResource;
 
 public class InfluenceCalculator {
+
 	static final Logger logger = LoggerFactory
 			.getLogger(InfluenceCalculator.class);
 
-	static Configuration hadoopConf;
-	static FileSystem hadoopFileSystem;
-	static SparkConf sparkConf;
-	static JavaSparkContext sparkContext;
-	final static int min_entities_matching = 1;
-
 	public static void main(String[] args) {
-
+		JavaSparkContext sparkContext = null;
 		try {
-			Config config = new Config();
-			JCommander jcm = new JCommander(config, args);
-			if (config.help) {
-				jcm.usage();
-				return;
-			}
+			Config.init(args);
+			Config config = Config.getInstance();
+
+			Configuration hadoopConf = new Configuration();
+			FileSystem hadoopFileSystem = FileSystem.get(hadoopConf);
+			SparkConf sparkConf = new SparkConf()
+					.setAppName("tssotn-data-processor");
+			if (config.runLocal)
+				sparkConf.setMaster("local[1]");
+			sparkContext = new JavaSparkContext(sparkConf);
+
+			if (!hadoopFileSystem.exists(new Path(config.newsPath)))
+				throw new IOException(config.newsPath + " does not exist");
+			if (!hadoopFileSystem.exists(new Path(config.tweetsPath)))
+				throw new IOException(config.tweetsPath + " does not exist");
+
+			String outputFileName = config.outputPath + "/"
+					+ new Date().getTime();
+
+			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
+					.textFile(config.newsPath).cache()
+					.map(n -> removeNewLines(n))
+					.flatMap(n -> splitJsonObjects(n)).map(n -> getNewsLink(n))
+					.mapToPair(n -> extractEntities(n))
+					.filter(n -> hasEntities(n._2))
+					.flatMapToPair(n -> flatEntitiesAndSwap(n));
+
+			JavaPairRDD<String, Tuple2<String, String>> tweetsEntityIDTimestampPairs = sparkContext
+					.textFile(config.tweetsPath).cache()
+					.map(t -> removeNewLines(t))
+					.flatMap(t -> splitJsonObjects(t))
+					.mapToPair(t -> createIDTimestampEntitiesPair(t))
+					.filter(t -> hasEntities(t._2))
+					.flatMapToPair(t -> flatEntitiesAndSwap(t));
+
+			JavaPairRDD<String, Tuple2<String, Tuple2<String, String>>> entityInfluenceMap = newsEntityLinkPairs
+					.join(tweetsEntityIDTimestampPairs);
+
+			entityInfluenceMap.mapToPair(
+					p -> prepareKeyWithLinkIdTimestampAndInitCounters(p))
+					.reduceByKey((i1, i2) -> i1 + i2)
+					.filter(p -> p._2 >= Config.getInstance().minMatches)
+					.mapToPair(p -> removeIdAndCounter(p))
+					.saveAsTextFile(outputFileName);
 			
-			initHadoopFileSystem(new Configuration());
-			initSpark(new SparkConf().setAppName("The-social-side-of-the-news").setMaster("local[1]"));
-
-			processInputs(config.tweetsPath, config.newsPath, config.outputPath);
-
-
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
 		} catch (ParameterException e) {
-			logger.error("Wrong configuration. Required parameters: --newsPath, --tweetPath, --outputPath");
+			logger.error("Wrong configuration: {}", e.getMessage());
 		} catch (Exception e) {
 			logger.error("Unknown error", e);
 		} finally {
@@ -65,192 +95,54 @@ public class InfluenceCalculator {
 		}
 	}
 
+	static Tuple2<String, String> removeIdAndCounter(
+			Tuple2<Tuple3<String, String, String>, Integer> p) {
+		return new Tuple2<String,String>(p._1._1(),p._1._3());
+	}
 
-	static void processInputs(String tweetsPath,String newsPath, String outputPath) throws Exception{
-		
-		Path inputTweets = new Path(tweetsPath);
-		Path inputNews = new Path(newsPath);
+	static Tuple2<Tuple3<String, String, String>, Integer> prepareKeyWithLinkIdTimestampAndInitCounters(
+			Tuple2<String, Tuple2<String, Tuple2<String, String>>> p) {
+		return new Tuple2<Tuple3<String, String, String>, Integer>(
+				new Tuple3<String, String, String>(p._2._1, p._2._2._1,
+						p._2._2._2), 1);
+	}
 
-		if (!hadoopFileSystem.exists(inputTweets)) throw new IOException(inputTweets.toString() + " does not exist");
-		if (!hadoopFileSystem.exists(inputNews)) throw new IOException(inputNews.toString() + " does not exist");
-
-		JavaRDD<String> newsFile = sparkContext.textFile(
-				inputNews.toString(), 1).cache();
-		JavaRDD<String> newsByRow = splitByRow(newsFile);
-
-		JavaRDD<JsonObject> news = parseRows(newsByRow);
-
-
-		news = filterOutEmptyEntities(news);
-
-		JavaPairRDD<String, String> newsEntityListMap = extractPairs(news, "link", "entities");
-
-		JavaPairRDD<String, String> entityNewsMap = splitValuesAndSwapKeyValue(newsEntityListMap);
-
-		JavaRDD<String> tweetFile = sparkContext.textFile(
-				inputTweets.toString(), 1).cache();
-		JavaRDD<String> tweetsByRow = splitByRow(tweetFile);
-
-		JavaRDD<JsonObject> tweets = parseRows(tweetsByRow);
-		tweets = filterOutEmptyEntities(tweets);
-		JavaPairRDD<String, String> tweetEntityListMap = extractPairs(tweets, "timestamp", "entities");
-		JavaPairRDD<String, String> entityTweetMap = splitValuesAndSwapKeyValue(tweetEntityListMap);
-
-		// join entities and news with entities and tweets
-		JavaPairRDD<String, Tuple2<String, String>> entityInfluenceMap = entityNewsMap
-				.join(entityTweetMap);
-
-		// filter entities without tweets or news
-		entityInfluenceMap
-		.filter(new Function<Tuple2<String, Tuple2<String, String>>, Boolean>() {
-			@Override
-			public Boolean call(
-					Tuple2<String, Tuple2<String, String>> match)
-							throws Exception {
-				return match._2._1 != null && match._2._2 != null;
+	private static Tuple2<Tuple2<String, String>, Set<String>> createIDTimestampEntitiesPair(
+			String t) {
+		Set<String> entities = new HashSet<String>();
+		JsonObject jsonTweet = new JsonParser().parse(t).getAsJsonObject();
+		String timestamp = jsonTweet.get("timestamp").getAsString();
+		JsonElement entitiesArray = jsonTweet.get("entities");
+		if (entitiesArray != null) {
+			JsonArray jsonEntities = entitiesArray.getAsJsonArray();
+			for (JsonElement jsonElement : jsonEntities) {
+				entities.add(jsonElement.getAsString());
 			}
-		});
-
-		// drop the entity, use url and timestamp as key and initialize the
-		// counters
-		JavaPairRDD<Tuple2<String, String>, Integer> countingInfluenceMap = entityInfluenceMap
-				.mapToPair(new PairFunction<Tuple2<String, Tuple2<String, String>>, Tuple2<String, String>, Integer>() {
-					@Override
-					public Tuple2<Tuple2<String, String>, Integer> call(
-							Tuple2<String, Tuple2<String, String>> match)
-									throws Exception {
-						return new Tuple2<Tuple2<String, String>, Integer>(
-								match._2, 1);
-					}
-				});
-
-		// sum up all the entities matched in tweets
-		JavaPairRDD<Tuple2<String, String>, Integer> summedInfluenceMap = countingInfluenceMap
-				.reduceByKey(new Function2<Integer, Integer, Integer>() {
-					@Override
-					public Integer call(Integer first, Integer second)
-							throws Exception {
-						return first + second;
-					}
-				});
-
-		// filter tweets with not enought entities matching
-		summedInfluenceMap = summedInfluenceMap
-				.filter(new Function<Tuple2<Tuple2<String, String>, Integer>, Boolean>() {
-					@Override
-					public Boolean call(
-							Tuple2<Tuple2<String, String>, Integer> influence)
-									throws Exception {
-						return influence._2 >= min_entities_matching;
-					}
-				});
-
-		// drop entity counter
-		JavaPairRDD<String, String> influenceMap = summedInfluenceMap
-				.mapToPair(matching -> matching._1);
-
-		influenceMap.saveAsTextFile(outputPath);
-
+		}
+		return new Tuple2<Tuple2<String, String>, Set<String>>(
+				new Tuple2<String, String>(UUID.randomUUID().toString(),
+						timestamp), entities);
 	}
 
-	static JavaRDD<JsonObject> parseRows(JavaRDD<String> newsByRow) {
-		return newsByRow.map(new Function<String, JsonObject>() {			
-			@Override
-			public JsonObject call(String news) throws Exception 
-			{
-				JsonParser parser = new JsonParser();
-				JsonElement jsonElement = parser.parse(news);
-				if(jsonElement == null  || jsonElement.isJsonNull() || !jsonElement.isJsonObject())					
-					return null;
-				return jsonElement.getAsJsonObject();
-			}
-		});
+	static <T> List<Tuple2<String, T>> flatEntitiesAndSwap(
+			Tuple2<T, Set<String>> n) {
+		List<Tuple2<String, T>> nOut = new ArrayList<Tuple2<String, T>>();
+		for (String entity : n._2) {
+			nOut.add(new Tuple2<String, T>(entity, n._1));
+		}
+		return nOut;
 	}
 
-	static void initSpark(SparkConf sparkConf) {
-		InfluenceCalculator.sparkConf = sparkConf;
-		sparkContext = new JavaSparkContext(sparkConf);
+	static boolean hasEntities(Set<String> s) {
+		return !s.isEmpty();
 	}
 
-	static void initHadoopFileSystem(Configuration hadoopConf)
-			throws IOException {
-		InfluenceCalculator.hadoopConf = hadoopConf;
-		hadoopFileSystem = FileSystem.get(InfluenceCalculator.hadoopConf);
+	static String getNewsLink(String s) {
+		return new JsonParser().parse(s).getAsJsonObject().get("link")
+				.getAsString();
 	}
 
-	static JavaPairRDD<String, String> splitValuesAndSwapKeyValue(
-			JavaPairRDD<String, String> data) {
-		JavaPairRDD<String, String> newData = data
-				.flatMapToPair(pair -> {
-					List<String> values = Arrays.asList(pair._2.split(","));
-					List<Tuple2<String, String>> newsList = new ArrayList<Tuple2<String, String>>();
-					for (String value : values) {
-						newsList.add(new Tuple2<String, String>(value, pair._1));
-					}
-					return newsList;
-				});
-		return newData;
-	}
-
-	/**
-	 * Generets a PairRDD using as key the element the element in the json
-	 * corresponding with the first parameter and as value the element
-	 * corresponding with the second element. In case elements are arrays all
-	 * the elements of the arrays are used
-	 * 
-	 * @param data
-	 *            an RDD containing one JSON objects
-	 * @param field1Name
-	 *            the name of the element to use as key
-	 * @param field2Name
-	 *            the name of thelement to use as value
-	 * @return
-	 */
-	static JavaPairRDD<String, String> extractPairs(JavaRDD<JsonObject> data,
-			String field1Name, String field2Name) {
-		JavaPairRDD<String, String> dataPairs = data
-				.mapToPair(new PairFunction<JsonObject, String, String>() {
-
-					private String field1Name;
-					private String field2Name;
-
-					public Tuple2<String, String> call(JsonObject json)
-							throws Exception {
-
-						JsonElement keyElement = json.get(field1Name);
-						String key;
-						if (keyElement.isJsonArray())
-							key = keyElement.getAsJsonArray().getAsString();
-						else 
-							key = keyElement.getAsString();
-
-						JsonElement valueElement = json.get(field2Name);
-						String value;
-
-						if(valueElement.isJsonArray()){
-							value = "";
-							JsonArray valueArray = valueElement.getAsJsonArray();
-							for (JsonElement valueJsonElement : valueArray) {
-								value += valueJsonElement.getAsString()+",";
-							}
-							value = value.substring(0, value.lastIndexOf(','));
-						}
-						else
-							value = valueElement.getAsString();						
-						return new Tuple2<String, String>(key,value);
-
-					}
-
-					public PairFunction<JsonObject, String, String> initialize(
-							String field1Name, String field2Name) {
-						this.field1Name = field1Name;
-						this.field2Name = field2Name;
-						return this;
-					}
-				}.initialize(field1Name, field2Name));
-		return dataPairs;
-	}
-
+	
 
 	static JavaRDD<JsonObject> filterOutEmptyEntities(JavaRDD<JsonObject> data) {
 		data = data.filter(news -> {
@@ -259,14 +151,81 @@ public class InfluenceCalculator {
 		return data;
 	}
 
-	static JavaRDD<String> splitByRow(JavaRDD<String> data) {
-		return data.flatMap(s -> Arrays.asList(s.split("\n")));
+
+	static Tuple2<String, Set<String>> extractEntities(String newsLink) {
+		double minConfidence = 0.7;
+		String dataTxtUrl = "https://api.dandelion.eu/datatxt/nex/v1";
+
+		JsonObject json = new JsonObject();
+		json.addProperty("link", newsLink);
+
+		Set<String> entities = new HashSet<String>();
+
+		Client client = Client.create();
+		WebResource webResource = client.resource(dataTxtUrl)
+				.queryParam("$app_id", Config.getInstance().app_id)
+				.queryParam("$app_key", Config.getInstance().app_key)
+				.queryParam("url", newsLink)
+				.queryParam("min_confidence", Double.toString(minConfidence))
+				.queryParam("lang", "it").queryParam("include", "lod")
+				.queryParam("epsilon", "0.0");
+		ClientResponse response = webResource.accept("application/json").get(
+				ClientResponse.class);
+		if (response.getStatus() != 200) {
+			throw new RuntimeException("Failed : HTTP error code : "
+					+ response.getStatus());
+		}
+
+		JsonElement annotationElement = new JsonParser()
+				.parse(response.getEntity(String.class)).getAsJsonObject()
+				.get("annotations");
+		if (annotationElement == null) {
+			return new Tuple2<String, Set<String>>(newsLink, entities);
+		}
+		JsonArray annotations = annotationElement.getAsJsonArray();
+		for (JsonElement annotation : annotations) {
+			JsonObject annotationObject = annotation.getAsJsonObject();
+			JsonElement lod = annotationObject.get("lod");
+			if (lod == null)
+				continue;
+			String entity = lod.getAsJsonObject().get("dbpedia").getAsString();
+			if (entity != null)
+				entities.add(entity);
+		}
+		return new Tuple2<String, Set<String>>(newsLink, entities);
 	}
 
-	static void checkOutputGeneration(Path outputData) throws Exception {
-		if (!hadoopFileSystem.exists(outputData)) {
-			throw new OutputNotProducedException(outputData.toString());
+	static List<String> splitJsonObjects(String string) {
+		List<String> jsonObjects = new ArrayList<String>();
+		int brackets = 0;
+		int start = 0;
+
+		for (int i = 0; i < string.length(); i++) {
+			switch (string.charAt(i)) {
+			case '{':
+				brackets++;
+				if (brackets == 1)
+					start = i;
+				break;
+			case '}':
+				brackets--;
+				if (brackets < 0) {
+					jsonObjects.clear(); // we started in the middle of a json
+											// object
+					brackets = 0;
+				} else if (brackets == 0) {
+					jsonObjects.add(string.substring(start, i + 1));
+				}
+				break;
+			default:
+				break;
+			}
 		}
+		return jsonObjects;
+	}
+
+	static String removeNewLines(String s) {
+		return s.replaceAll("\r\n|\r|\n", "");
 	}
 
 }

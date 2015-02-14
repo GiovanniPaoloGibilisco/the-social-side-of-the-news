@@ -10,9 +10,7 @@
 
 	<modules>
 		<module>data-loader</module>
-		<module>data-preprocessor</module>
 		<module>data-processor</module>
-		<module>common</module>
 	</modules>
 
 	<properties>

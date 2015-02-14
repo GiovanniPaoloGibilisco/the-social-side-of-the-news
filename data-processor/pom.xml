@@ -10,13 +10,6 @@
 	<packaging>jar</packaging>
 	<name>Data Processor</name>
 
-	<dependencies>
-		<dependency>
-			<groupId>it.polimi.tssotn</groupId>
-			<artifactId>common</artifactId>
-			<version>${project.version}</version>
-		</dependency>
-	</dependencies>
 
 	<build>
 		<plugins>
