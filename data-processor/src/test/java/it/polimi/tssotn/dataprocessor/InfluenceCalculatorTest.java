@@ -58,22 +58,23 @@ public class InfluenceCalculatorTest {
 								.toURI()), new Path(filteredTweetsPath));
 	}
 
+
 	@Test
 	public void splitByDataShouldProduce2News() {
 		Path inputNews = new Path(config.newsPath);
-		JavaRDD<String> newsFile = sc.textFile(inputNews.toString(), 1).cache();
+		JavaRDD<String> newsFile = sc.textFile(inputNews.toString(), 1);
 		JavaRDD<String> splittedNews = InfluenceCalculator.splitByRow(newsFile);
-		assertTrue(splittedNews.count() == 2);
+		JavaRDD<JsonObject> news = InfluenceCalculator.parseRows(splittedNews);
+		assertTrue(news.count() == 2);
 	}
 
 	@Test
 	public void splitByDataShouldProduce9Tweets() {
 		Path inputTweets = new Path(config.tweetsPath);
-		JavaRDD<String> tweetFile = sc.textFile(inputTweets.toString(), 1)
-				.cache();
-		JavaRDD<String> splittedTweets = InfluenceCalculator
-				.splitByRow(tweetFile);
-		assertTrue(splittedTweets.count() == 9);
+		JavaRDD<String> tweetFile = sc.textFile(inputTweets.toString(), 1);
+		JavaRDD<String> splittedTweets = InfluenceCalculator.splitByRow(tweetFile);
+		JavaRDD<JsonObject> tweets = InfluenceCalculator.parseRows(splittedTweets);
+		assertTrue(tweets.count() == 9);
 	}
 
 	@Test
@@ -88,9 +89,8 @@ public class InfluenceCalculatorTest {
 		JavaRDD<String> filteredTweeFile = sc.textFile(new Path(filteredTweetsPath).toString(), 1);
 		JavaRDD<String> splittedFilteredTweets = InfluenceCalculator
 				.splitByRow(filteredTweeFile);
-		JavaRDD<JsonObject> filteredTweets = InfluenceCalculator.parseRows(splittedFilteredTweets);
-
-		assertEquals(filteredTweets.collect(), noEmptyTweets.collect());
+		JavaRDD<JsonObject> filteredTweets = InfluenceCalculator.parseRows(splittedFilteredTweets);		
+		assertEquals(filteredTweets.count(), noEmptyTweets.count());
 	}
 
 	@Test
@@ -122,6 +122,12 @@ public class InfluenceCalculatorTest {
 		assertTrue(splitted.count() == (long) 3);
 
 	}
+	
+	@Test
+	public void processingShouldProduceSomeOutput() throws Exception{
+		InfluenceCalculator.processInputs(config.tweetsPath, config.newsPath, config.outputPath);
+	}
+	
 
 	@After
 	public void tearDown() throws IllegalArgumentException, IOException {
