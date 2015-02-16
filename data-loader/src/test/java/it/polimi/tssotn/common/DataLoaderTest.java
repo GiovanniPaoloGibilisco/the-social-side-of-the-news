@@ -24,8 +24,6 @@ public class DataLoaderTest {
 
 	private static final String twitterDataURL = "https://api.dandelion.eu/datagems/v2/SpazioDati/social-pulse-milano/data";
 	private static final String newsDataURL = "https://api.dandelion.eu/datagems/v2/SpazioDati/milanotoday/data";
-	private static final String app_id = "5bb0e37c";
-	private static final String app_key = "593dc19bbaaa08aad799e6a57db362cf";
 
 	private JavaSparkContext sparkContext;
 	private FileSystem hadoopFileSystem;
@@ -41,26 +39,7 @@ public class DataLoaderTest {
 		sparkContext = new JavaSparkContext(sparkConf);
 	}
 
-	@Test
-	public void twitterDataShouldBeDownloaded() {
-		Map<String, String> commonPars = new HashMap<String, String>();
-		commonPars.put("$app_id", app_id);
-		commonPars.put("$app_key", app_key);
-		JavaRDD<String> tweetsChunks = DataLoader.restToRDD(twitterDataURL,
-				"$offset", "$limit", 1000, 0, 2000, commonPars, sparkContext);
-		assertTrue(tweetsChunks.count() > 0);
-	}
 
-	@Test
-	public void milanoTodayDataShouldBeDownloaded() {
-		Map<String, String> commonPars = new HashMap<String, String>();
-		commonPars.put("$app_id", app_id);
-		commonPars.put("$app_key", app_key);
-		JavaRDD<String> milanoTodayChunks = DataLoader.restToRDD(
-				newsDataURL, "$offset", "$limit", 500, 0, 3014, commonPars,
-				sparkContext);
-		assertTrue(milanoTodayChunks.count() > 0);
-	}
 
 	@After
 	public void tearDown() {
