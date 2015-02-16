@@ -10,6 +10,7 @@ import javax.ws.rs.core.UriBuilder;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -89,16 +90,19 @@ public class DataLoader {
 
 		JavaRDD<String> urls = sparkContext.parallelize(urlsList);
 
-		return urls.map(webResource -> {
-			Client client = Client.create();
-			ClientResponse response = client.resource(webResource)
-					.accept("application/json").get(ClientResponse.class);
-			if (response.getStatus() != 200) {
-				throw new RuntimeException("Failed : HTTP error code : "
-						+ response.getStatus());
+		return urls.map(new Function<String, String>() {
+			@Override
+			public String call(String webResource) throws Exception {
+				Client client = Client.create();
+				ClientResponse response = client.resource(webResource)
+						.accept("application/json").get(ClientResponse.class);
+				if (response.getStatus() != 200) {
+					throw new RuntimeException("Failed : HTTP error code : "
+							+ response.getStatus());
+				}
+				return new JsonParser().parse(response.getEntity(String.class))
+						.getAsJsonObject().get("items").toString();
 			}
-			return new JsonParser().parse(response.getEntity(String.class))
-					.getAsJsonObject().get("items").toString();
 		});
 	}
 

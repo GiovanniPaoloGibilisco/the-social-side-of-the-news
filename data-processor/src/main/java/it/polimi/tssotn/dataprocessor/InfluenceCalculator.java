@@ -15,6 +15,11 @@ import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.api.java.function.FlatMapFunction;
+import org.apache.spark.api.java.function.Function;
+import org.apache.spark.api.java.function.Function2;
+import org.apache.spark.api.java.function.PairFlatMapFunction;
+import org.apache.spark.api.java.function.PairFunction;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -59,28 +64,118 @@ public class InfluenceCalculator {
 
 			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
 					.textFile(config.newsPath).cache()
-					.map(n -> removeNewLines(n))
-					.flatMap(n -> splitJsonObjects(n)).map(n -> getNewsLink(n))
-					.mapToPair(n -> extractEntities(n))
-					.filter(n -> hasEntities(n._2))
-					.flatMapToPair(n -> flatEntitiesAndSwap(n));
+					.map(new Function<String, String>() {
+						@Override
+						public String call(String n) throws Exception {
+							return removeNewLines(n);
+						}
+					})
+					.flatMap(new FlatMapFunction<String, String>() {
+						@Override
+						public Iterable<String> call(String n) throws Exception {
+							return splitJsonObjects(n);
+						}
+					}).map(new Function<String, String>() {
+						@Override
+						public String call(String n) throws Exception {
+							return getNewsLink(n);
+						}
+					})
+					.mapToPair(new PairFunction<String, String, Set<String>>() {
+						@Override
+						public Tuple2<String, Set<String>> call(String n)
+								throws Exception {
+							return extractEntities(n);
+						}
+					})
+					.filter(new Function<Tuple2<String, Set<String>>, Boolean>() {
+						@Override
+						public Boolean call(Tuple2<String, Set<String>> n)
+								throws Exception {
+							return hasEntities(n._2);
+						}
+					})
+					.flatMapToPair(new PairFlatMapFunction<Tuple2<String, Set<String>>, String, String>() {
+						@Override
+						public Iterable<Tuple2<String, String>> call(
+								Tuple2<String, Set<String>> n) throws Exception {
+							return flatEntitiesAndSwap(n);
+						}
+					});
 
 			JavaPairRDD<String, Tuple2<String, String>> tweetsEntityIDTimestampPairs = sparkContext
 					.textFile(config.tweetsPath).cache()
-					.map(t -> removeNewLines(t))
-					.flatMap(t -> splitJsonObjects(t))
-					.mapToPair(t -> createIDTimestampEntitiesPair(t))
-					.filter(t -> hasEntities(t._2))
-					.flatMapToPair(t -> flatEntitiesAndSwap(t));
+					.map(new Function<String, String>() {
+						@Override
+						public String call(String t) throws Exception {
+							return removeNewLines(t);
+						}
+					})
+					.flatMap(new FlatMapFunction<String, String>() {
+						@Override
+						public Iterable<String> call(String t) throws Exception {
+							return splitJsonObjects(t);
+						}
+					})
+					.mapToPair(new PairFunction<String, Tuple2<String, String>, Set<String>>() {
+						@Override
+						public Tuple2<Tuple2<String, String>, Set<String>> call(
+								String t) throws Exception {
+							return createIDTimestampEntitiesPair(t);
+						}
+					})
+					.filter(new Function<Tuple2<Tuple2<String, String>, Set<String>>, Boolean>() {
+						@Override
+						public Boolean call(
+								Tuple2<Tuple2<String, String>, Set<String>> t)
+								throws Exception {
+							return hasEntities(t._2);
+						}
+					})
+					.flatMapToPair(new PairFlatMapFunction<Tuple2<Tuple2<String, String>, Set<String>>, String, Tuple2<String, String>>() {
+						@Override
+						public Iterable<Tuple2<String, Tuple2<String, String>>> call(
+								Tuple2<Tuple2<String, String>, Set<String>> t)
+								throws Exception {
+							return flatEntitiesAndSwap(t);
+						}
+					});
 
 			JavaPairRDD<String, Tuple2<String, Tuple2<String, String>>> entityInfluenceMap = newsEntityLinkPairs
 					.join(tweetsEntityIDTimestampPairs);
 
 			entityInfluenceMap.mapToPair(
-					p -> prepareKeyWithLinkIdTimestampAndInitCounters(p))
-					.reduceByKey((i1, i2) -> i1 + i2)
-					.filter(p -> p._2 >= Config.getInstance().minMatches)
-					.mapToPair(p -> removeIdAndCounter(p))
+					new PairFunction<Tuple2<String, Tuple2<String, Tuple2<String, String>>>, Tuple3<String, String, String>, Integer>() {
+						@Override
+						public Tuple2<Tuple3<String, String, String>, Integer> call(
+								Tuple2<String, Tuple2<String, Tuple2<String, String>>> p)
+								throws Exception {
+							return prepareKeyWithLinkIdTimestampAndInitCounters(p);
+						}
+					})
+					.reduceByKey(new Function2<Integer, Integer, Integer>() {
+						@Override
+						public Integer call(Integer i1, Integer i2)
+								throws Exception {
+							return i1 + i2;
+						}
+					})
+					.filter(new Function<Tuple2<Tuple3<String, String, String>, Integer>, Boolean>() {
+						@Override
+						public Boolean call(
+								Tuple2<Tuple3<String, String, String>, Integer> p)
+								throws Exception {
+							return p._2 >= Config.getInstance().minMatches;
+						}
+					})
+					.mapToPair(new PairFunction<Tuple2<Tuple3<String, String, String>, Integer>, String, String>() {
+						@Override
+						public Tuple2<String, String> call(
+								Tuple2<Tuple3<String, String, String>, Integer> p)
+								throws Exception {
+							return removeIdAndCounter(p);
+						}
+					})
 					.saveAsTextFile(outputFileName);
 			
 		} catch (IOException e) {

@@ -5,7 +5,7 @@
 	<groupId>it.polimi.tssotn</groupId>
 	<artifactId>the-social-side-of-the-news</artifactId>
 	<packaging>pom</packaging>
-	<version>0.1</version>
+	<version>0.1-java7</version>
 	<name>The Social Side of The News</name>
 
 	<modules>
@@ -57,8 +57,8 @@
 					<artifactId>maven-compiler-plugin</artifactId>
 					<version>3.1</version>
 					<configuration>
-						<source>1.8</source>
-						<target>1.8</target>
+						<source>1.7</source>
+						<target>1.7</target>
 					</configuration>
 				</plugin>
 			</plugins>
