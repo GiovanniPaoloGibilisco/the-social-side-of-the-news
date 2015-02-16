@@ -142,16 +142,6 @@ public class InfluenceCalculator {
 				.getAsString();
 	}
 
-	
-
-	static JavaRDD<JsonObject> filterOutEmptyEntities(JavaRDD<JsonObject> data) {
-		data = data.filter(news -> {
-			return news.get("entities") != null;
-		});
-		return data;
-	}
-
-
 	static Tuple2<String, Set<String>> extractEntities(String newsLink) {
 		double minConfidence = 0.7;
 		String dataTxtUrl = "https://api.dandelion.eu/datatxt/nex/v1";
