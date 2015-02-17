@@ -13,7 +13,6 @@ import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
-import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
 import org.apache.spark.api.java.function.FlatMapFunction;
 import org.apache.spark.api.java.function.Function;
@@ -42,6 +41,7 @@ public class InfluenceCalculator {
 
 	public static void main(String[] args) {
 		JavaSparkContext sparkContext = null;
+		
 		try {
 			Config.init(args);
 			Config config = Config.getInstance();
@@ -59,7 +59,7 @@ public class InfluenceCalculator {
 			if (!hadoopFileSystem.exists(new Path(config.tweetsPath)))
 				throw new IOException(config.tweetsPath + " does not exist");
 
-			String outputFileName = config.outputPath + "/"
+			String outputFileName = config.outputPathBase + "/"
 					+ new Date().getTime();
 
 			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
@@ -247,6 +247,8 @@ public class InfluenceCalculator {
 		Set<String> entities = new HashSet<String>();
 
 		Client client = Client.create();
+		
+		logger.info("Query parameters: app_id = {},  app_key = {}, url = {}, min_confidence = {}, lang = it, include = lod, epsilon = 0.0", new Object[] {Config.getInstance().app_id, Config.getInstance().app_key, newsLink, Double.toString(minConfidence)});
 		WebResource webResource = client.resource(dataTxtUrl)
 				.queryParam("$app_id", Config.getInstance().app_id)
 				.queryParam("$app_key", Config.getInstance().app_key)
@@ -254,6 +256,7 @@ public class InfluenceCalculator {
 				.queryParam("min_confidence", Double.toString(minConfidence))
 				.queryParam("lang", "it").queryParam("include", "lod")
 				.queryParam("epsilon", "0.0");
+		logger.debug("Query String: {}",webResource.getURI());
 		ClientResponse response = webResource.accept("application/json").get(
 				ClientResponse.class);
 		if (response.getStatus() != 200) {

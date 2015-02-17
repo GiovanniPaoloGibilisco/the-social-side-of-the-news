@@ -1,11 +1,16 @@
 package it.polimi.tssotn.dataprocessor;
 
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
 import com.beust.jcommander.JCommander;
 import com.beust.jcommander.Parameter;
 
 public class Config {
 
 	private static Config _instance;
+	static final Logger logger = LoggerFactory
+			.getLogger(InfluenceCalculator.class);
 
 	private Config() {
 	}
@@ -20,6 +25,7 @@ public class Config {
 	public static void init(String[] args) {
 		_instance = new Config();
 		new JCommander(_instance, args);
+		logger.info("Configuration: --tweetPath {} --newsPath {} --outputPathBase {} --appid {} --appkey {} --runlocal {} --minMatches {}",new Object[] {_instance.tweetsPath, _instance.newsPath, _instance.outputPathBase, _instance.app_id, _instance.app_key, _instance.runLocal, _instance.minMatches});
 	}
 
 	@Parameter(names = { "-t", "--tweetPath" }, required = true)
@@ -29,7 +35,7 @@ public class Config {
 	public String newsPath;
 
 	@Parameter(names = { "-o", "--outputPath" }, required = true)
-	public String outputPath;
+	public String outputPathBase;
 
 	@Parameter(names = { "-i", "--appid" }, required = true)
 	public String app_id;
