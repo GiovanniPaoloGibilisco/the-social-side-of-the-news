@@ -2,6 +2,7 @@ package it.polimi.tssotn.dataprocessor;
 
 import java.io.IOException;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
@@ -54,35 +55,34 @@ public class InfluenceCalculator {
 			if (!hadoopFileSystem.exists(new Path(config.tweetsPath)))
 				throw new IOException(config.tweetsPath + " does not exist");
 
-			String outputFileName = config.outputPath + "/"
+			String outputFileNameBase = config.outputPathBase + "/"
 					+ new Date().getTime();
 
 			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
-					.textFile(config.newsPath).cache()
-					.map(n -> removeNewLines(n))
+					.textFile(config.newsPath).map(n -> removeNewLines(n))
 					.flatMap(n -> splitJsonObjects(n)).map(n -> getNewsLink(n))
 					.mapToPair(n -> extractEntities(n))
 					.filter(n -> hasEntities(n._2))
 					.flatMapToPair(n -> flatEntitiesAndSwap(n));
 
 			JavaPairRDD<String, Tuple2<String, String>> tweetsEntityIDTimestampPairs = sparkContext
-					.textFile(config.tweetsPath).cache()
+					.textFile(config.tweetsPath)
 					.map(t -> removeNewLines(t))
 					.flatMap(t -> splitJsonObjects(t))
-					.mapToPair(t -> createIDTimestampEntitiesPair(t))
+					.mapToPair(
+							t -> new Tuple2<String, String>(UUID.randomUUID()
+									.toString(), t))
+					.mapToPair(t -> extractTimestampsAndEntities(t))
 					.filter(t -> hasEntities(t._2))
 					.flatMapToPair(t -> flatEntitiesAndSwap(t));
 
 			JavaPairRDD<String, Tuple2<String, Tuple2<String, String>>> entityInfluenceMap = newsEntityLinkPairs
 					.join(tweetsEntityIDTimestampPairs);
 
-			entityInfluenceMap.mapToPair(
-					p -> prepareKeyWithLinkIdTimestampAndInitCounters(p))
-					.reduceByKey((i1, i2) -> i1 + i2)
-					.filter(p -> p._2 >= Config.getInstance().minMatches)
-					.mapToPair(p -> removeIdAndCounter(p))
-					.saveAsTextFile(outputFileName);
-			
+			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> raw = entityInfluenceMap
+					.mapToPair(r -> prepareKeyWithLinkIdTimestamp(r))
+					.groupByKey().map(r -> addEntitiesCount(r));
+
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
 		} catch (ParameterException e) {
@@ -95,22 +95,37 @@ public class InfluenceCalculator {
 		}
 	}
 
+	private static Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer> addEntitiesCount(
+			Tuple2<Tuple3<String, String, String>, Iterable<String>> r) {
+		return new Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>(
+				r._1, r._2, size(r._2));
+	}
+
 	static Tuple2<String, String> removeIdAndCounter(
 			Tuple2<Tuple3<String, String, String>, Integer> p) {
-		return new Tuple2<String,String>(p._1._1(),p._1._3());
+		return new Tuple2<String, String>(p._1._1(), p._1._3());
 	}
 
-	static Tuple2<Tuple3<String, String, String>, Integer> prepareKeyWithLinkIdTimestampAndInitCounters(
+	static Tuple2<Tuple3<String, String, String>, String> prepareKeyWithLinkIdTimestamp(
 			Tuple2<String, Tuple2<String, Tuple2<String, String>>> p) {
-		return new Tuple2<Tuple3<String, String, String>, Integer>(
+		return new Tuple2<Tuple3<String, String, String>, String>(
 				new Tuple3<String, String, String>(p._2._1, p._2._2._1,
-						p._2._2._2), 1);
+						p._2._2._2), p._1);
 	}
 
-	private static Tuple2<Tuple2<String, String>, Set<String>> createIDTimestampEntitiesPair(
-			String t) {
+	static int size(Iterable<?> it) {
+		if (it instanceof Collection)
+			return ((Collection<?>) it).size();
+		int i = 0;
+		for (Object obj : it)
+			i++;
+		return i;
+	}
+
+	static Tuple2<Tuple2<String, String>, Set<String>> extractTimestampsAndEntities(
+			Tuple2<String, String> t) {
 		Set<String> entities = new HashSet<String>();
-		JsonObject jsonTweet = new JsonParser().parse(t).getAsJsonObject();
+		JsonObject jsonTweet = new JsonParser().parse(t._2).getAsJsonObject();
 		String timestamp = jsonTweet.get("timestamp").getAsString();
 		JsonElement entitiesArray = jsonTweet.get("entities");
 		if (entitiesArray != null) {
@@ -119,9 +134,7 @@ public class InfluenceCalculator {
 				entities.add(jsonElement.getAsString());
 			}
 		}
-		return new Tuple2<Tuple2<String, String>, Set<String>>(
-				new Tuple2<String, String>(UUID.randomUUID().toString(),
-						timestamp), entities);
+		return new Tuple2<Tuple2<String, String>, Set<String>>(t, entities);
 	}
 
 	static <T> List<Tuple2<String, T>> flatEntitiesAndSwap(

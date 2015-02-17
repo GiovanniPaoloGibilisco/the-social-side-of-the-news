@@ -28,8 +28,8 @@ public class Config {
 	@Parameter(names = { "-n", "--newsPath" }, required = true)
 	public String newsPath;
 
-	@Parameter(names = { "-o", "--outputPath" }, required = true)
-	public String outputPath;
+	@Parameter(names = { "-o", "--outputPathBase" }, required = true)
+	public String outputPathBase;
 
 	@Parameter(names = { "-i", "--appid" }, required = true)
 	public String app_id;
