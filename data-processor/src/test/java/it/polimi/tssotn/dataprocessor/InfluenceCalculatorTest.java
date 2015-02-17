@@ -57,7 +57,7 @@ public class InfluenceCalculatorTest {
 	@Test
 	public void entitiesInDerbyShouldNotBeEmpty() {
 		Tuple2<String, Set<String>> entities = InfluenceCalculator
-				.extractEntities("http://www.milanotoday.it/sport/inter-milan-1-0-palacio-22-dicembre-2013.html");
+				.extractEntities("http://www.milanotoday.it/sport/inter-milan-1-0-palacio-22-dicembre-2013.html",Config.getInstance());
 		assertFalse(entities._2.isEmpty());
 	}
 

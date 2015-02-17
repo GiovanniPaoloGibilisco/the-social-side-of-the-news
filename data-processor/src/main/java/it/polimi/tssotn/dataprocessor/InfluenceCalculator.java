@@ -12,10 +12,12 @@ import java.util.UUID;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
+import org.apache.hadoop.hdfs.DFSClient.Conf;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
 import org.apache.spark.api.java.JavaSparkContext;
+import org.apache.spark.broadcast.Broadcast;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,31 +41,44 @@ public class InfluenceCalculator {
 	public static void main(String[] args) {
 		JavaSparkContext sparkContext = null;
 		try {
-			Config.init(args);
-			Config config = Config.getInstance();
-
+			Config.init(args);			
+			
 			Configuration hadoopConf = new Configuration();
 			FileSystem hadoopFileSystem = FileSystem.get(hadoopConf);
 			SparkConf sparkConf = new SparkConf()
 					.setAppName("tssotn-data-processor");
-			if (config.runLocal)
+			if (Config.getInstance().runLocal)
 				sparkConf.setMaster("local[1]");
 			sparkContext = new JavaSparkContext(sparkConf);
 
+			logger.info("Config instance: {} ",Config.getInstance());
+			logger.info("Query parameters: app_id = {},  app_key = {}", new Object[] {Config.getInstance().app_id, Config.getInstance().app_key});
+			logger.info("Broadcasting the configuration");
+			Broadcast<Config> broadcastVar = sparkContext.broadcast(Config.getInstance());
+			final Config config = broadcastVar.value();						
+			
+			
 			if (!hadoopFileSystem.exists(new Path(config.newsPath)))
 				throw new IOException(config.newsPath + " does not exist");
 			if (!hadoopFileSystem.exists(new Path(config.tweetsPath)))
 				throw new IOException(config.tweetsPath + " does not exist");
 
+			
+			
+			logger.info("Config instance: {} ",config);
+			logger.info("Query parameters: app_id = {},  app_key = {}", new Object[] {config.app_id, config.app_key});
+
+			
 			String outputFileNameBase = config.outputPathBase + "/"
 					+ new Date().getTime();
 
 			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
 					.textFile(config.newsPath).map(n -> removeNewLines(n))
 					.flatMap(n -> splitJsonObjects(n)).map(n -> getNewsLink(n))
-					.mapToPair(n -> extractEntities(n))
+					.mapToPair(n -> extractEntities(n,config))
 					.filter(n -> hasEntities(n._2))
 					.flatMapToPair(n -> flatEntitiesAndSwap(n));
+			logger.info("computed newsEntityLinkPairs");
 
 			JavaPairRDD<String, Tuple2<String, String>> tweetsEntityIDTimestampPairs = sparkContext
 					.textFile(config.tweetsPath)
@@ -75,13 +90,18 @@ public class InfluenceCalculator {
 					.mapToPair(t -> extractTimestampsAndEntities(t))
 					.filter(t -> hasEntities(t._2))
 					.flatMapToPair(t -> flatEntitiesAndSwap(t));
+			logger.info("computed tweetsEntityIDTimestampPairs");
 
 			JavaPairRDD<String, Tuple2<String, Tuple2<String, String>>> entityInfluenceMap = newsEntityLinkPairs
 					.join(tweetsEntityIDTimestampPairs);
+			logger.info("computed join");
 
 			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> raw = entityInfluenceMap
 					.mapToPair(r -> prepareKeyWithLinkIdTimestamp(r))
 					.groupByKey().map(r -> addEntitiesCount(r));
+			
+					raw.saveAsTextFile(config.outputPathBase);
+			logger.info("computed raw");
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
@@ -155,7 +175,7 @@ public class InfluenceCalculator {
 				.getAsString();
 	}
 
-	static Tuple2<String, Set<String>> extractEntities(String newsLink) {
+	static Tuple2<String, Set<String>> extractEntities(String newsLink, Config config) {
 		double minConfidence = 0.7;
 		String dataTxtUrl = "https://api.dandelion.eu/datatxt/nex/v1";
 
@@ -165,10 +185,12 @@ public class InfluenceCalculator {
 		Set<String> entities = new HashSet<String>();
 
 		Client client = Client.create();
-		logger.debug("Query parameters: app_id = {},  app_key = {}, url = {}, min_confidence = {}, lang = it, include = lod, epsilon = 0.0");
+		logger.info("Config instance exists: {} ",config != null);
+		logger.info("Config instance: {} ",config);
+		logger.info("Query parameters: app_id = {},  app_key = {}, url = {}, min_confidence = {}, lang = it, include = lod, epsilon = 0.0", new Object[] {config.app_id, config.app_key, newsLink, Double.toString(minConfidence)});
 		WebResource webResource = client.resource(dataTxtUrl)
-				.queryParam("$app_id", Config.getInstance().app_id)
-				.queryParam("$app_key", Config.getInstance().app_key)
+				.queryParam("$app_id", config.app_id)
+				.queryParam("$app_key", config.app_key)
 				.queryParam("url", newsLink)
 				.queryParam("min_confidence", Double.toString(minConfidence))
 				.queryParam("lang", "it").queryParam("include", "lod")
