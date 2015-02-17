@@ -165,6 +165,7 @@ public class InfluenceCalculator {
 		Set<String> entities = new HashSet<String>();
 
 		Client client = Client.create();
+		logger.debug("Query parameters: app_id = {},  app_key = {}, url = {}, min_confidence = {}, lang = it, include = lod, epsilon = 0.0");
 		WebResource webResource = client.resource(dataTxtUrl)
 				.queryParam("$app_id", Config.getInstance().app_id)
 				.queryParam("$app_key", Config.getInstance().app_key)
