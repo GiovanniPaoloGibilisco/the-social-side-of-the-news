@@ -3,7 +3,6 @@ package it.polimi.tssotn.dataprocessor;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
-import java.util.Date;
 import java.util.HashSet;
 import java.util.List;
 import java.util.Set;
@@ -12,7 +11,6 @@ import java.util.UUID;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
-import org.apache.hadoop.hdfs.DFSClient.Conf;
 import org.apache.spark.SparkConf;
 import org.apache.spark.api.java.JavaPairRDD;
 import org.apache.spark.api.java.JavaRDD;
@@ -29,9 +27,6 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
-import com.sun.jersey.api.client.Client;
-import com.sun.jersey.api.client.ClientResponse;
-import com.sun.jersey.api.client.WebResource;
 
 public class InfluenceCalculator {
 
@@ -41,55 +36,45 @@ public class InfluenceCalculator {
 	public static void main(String[] args) {
 		JavaSparkContext sparkContext = null;
 		try {
-			Config.init(args);			
-			
+			Config.init(args);
+			Config config = Config.getInstance();
 			Configuration hadoopConf = new Configuration();
 			FileSystem hadoopFileSystem = FileSystem.get(hadoopConf);
 			SparkConf sparkConf = new SparkConf()
 					.setAppName("tssotn-data-processor");
-			if (Config.getInstance().runLocal)
+			if (config.runLocal)
 				sparkConf.setMaster("local[1]");
 			sparkContext = new JavaSparkContext(sparkConf);
 			int parallelize = sparkConf.getInt("spark.default.parallelism", 4);
-			logger.info("parallelize value: {}",parallelize);
-			logger.info("Config instance: {} ",Config.getInstance());
-			logger.info("Query parameters: app_id = {},  app_key = {}", new Object[] {Config.getInstance().app_id, Config.getInstance().app_key});
+
 			logger.info("Broadcasting the configuration");
-			Broadcast<Config> broadcastVar = sparkContext.broadcast(Config.getInstance());
-			final Config config = broadcastVar.value();						
-			
-			
-			if (!hadoopFileSystem.exists(new Path(config.newsPath)))
-				throw new IOException(config.newsPath + " does not exist");
+			Broadcast<Config> broadcastVar = sparkContext.broadcast(config);
+			config = broadcastVar.value();
+
+			if (!hadoopFileSystem.exists(new Path(config.newsEntitiesPath)))
+				throw new IOException(config.newsEntitiesPath
+						+ " does not exist");
 			if (!hadoopFileSystem.exists(new Path(config.tweetsPath)))
 				throw new IOException(config.tweetsPath + " does not exist");
 
-			
-			
-			logger.info("Config instance: {} ",config);
-			logger.info("Query parameters: app_id = {},  app_key = {}", new Object[] {config.app_id, config.app_key});
-
-			
-			String outputFileNameBase = config.outputPathBase + "/"
-					+ new Date().getTime();
-
 			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
-					.textFile(config.newsPath,parallelize).map(n -> removeNewLines(n))
-					.flatMap(n -> splitJsonObjects(n)).map(n -> getNewsLink(n))
-					.mapToPair(n -> extractEntities(n,config))
-					.filter(n -> hasEntities(n._2))
+					.textFile(config.newsEntitiesPath)
+					.flatMap(n -> Commons.splitJsonObjects(n))
+					.mapToPair(n -> deserialize(n))
+					.filter(n -> Commons.hasEntities(n._2))
 					.flatMapToPair(n -> flatEntitiesAndSwap(n));
+
 			logger.info("computed newsEntityLinkPairs");
 
 			JavaPairRDD<String, Tuple2<String, String>> tweetsEntityIDTimestampPairs = sparkContext
-					.textFile(config.tweetsPath,parallelize)
-					.map(t -> removeNewLines(t))
-					.flatMap(t -> splitJsonObjects(t))
+					.textFile(config.tweetsPath, parallelize)
+					.map(t -> Commons.removeNewLines(t))
+					.flatMap(t -> Commons.splitJsonObjects(t))
 					.mapToPair(
 							t -> new Tuple2<String, String>(UUID.randomUUID()
 									.toString(), t))
 					.mapToPair(t -> extractTimestampsAndEntities(t))
-					.filter(t -> hasEntities(t._2))
+					.filter(t -> Commons.hasEntities(t._2))
 					.flatMapToPair(t -> flatEntitiesAndSwap(t));
 			logger.info("computed tweetsEntityIDTimestampPairs");
 
@@ -100,8 +85,8 @@ public class InfluenceCalculator {
 			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> raw = entityInfluenceMap
 					.mapToPair(r -> prepareKeyWithLinkIdTimestamp(r))
 					.groupByKey().map(r -> addEntitiesCount(r));
-			
-					raw.saveAsTextFile(config.outputPathBase);
+
+			raw.saveAsTextFile(config.outputPathBase);
 			logger.info("computed raw");
 
 		} catch (IOException e) {
@@ -138,7 +123,8 @@ public class InfluenceCalculator {
 		if (it instanceof Collection)
 			return ((Collection<?>) it).size();
 		int i = 0;
-		for (Object obj : it)
+		for (@SuppressWarnings("unused")
+		Object obj : it)
 			i++;
 		return i;
 	}
@@ -155,7 +141,8 @@ public class InfluenceCalculator {
 				entities.add(jsonElement.getAsString());
 			}
 		}
-		return new Tuple2<Tuple2<String, String>, Set<String>>(t, entities);
+		return new Tuple2<Tuple2<String, String>, Set<String>>(
+				new Tuple2<String, String>(t._1, timestamp), entities);
 	}
 
 	static <T> List<Tuple2<String, T>> flatEntitiesAndSwap(
@@ -167,89 +154,22 @@ public class InfluenceCalculator {
 		return nOut;
 	}
 
-	static boolean hasEntities(Set<String> s) {
-		return !s.isEmpty();
-	}
-
 	static String getNewsLink(String s) {
 		return new JsonParser().parse(s).getAsJsonObject().get("link")
 				.getAsString();
 	}
 
-	static Tuple2<String, Set<String>> extractEntities(String newsLink, Config config) {
-		double minConfidence = 0.7;
-		String dataTxtUrl = "https://api.dandelion.eu/datatxt/nex/v1";
-
-		JsonObject json = new JsonObject();
-		json.addProperty("link", newsLink);
-
+	static Tuple2<String, Set<String>> deserialize(String newsEntity) {
+		JsonObject json = new JsonParser().parse(newsEntity).getAsJsonObject();
+		String link = json.get("link").getAsString();
 		Set<String> entities = new HashSet<String>();
 
-		Client client = Client.create();		
-		WebResource webResource = client.resource(dataTxtUrl)
-				.queryParam("$app_id", config.app_id)
-				.queryParam("$app_key", config.app_key)
-				.queryParam("url", newsLink)
-				.queryParam("min_confidence", Double.toString(minConfidence))
-				.queryParam("lang", "it").queryParam("include", "lod")
-				.queryParam("epsilon", "0.0");
-		ClientResponse response = webResource.accept("application/json").get(
-				ClientResponse.class);
-		if (response.getStatus() != 200) {
-			throw new RuntimeException("Failed : HTTP error code : "
-					+ response.getStatus());
-		}
-
-		JsonElement annotationElement = new JsonParser()
-				.parse(response.getEntity(String.class)).getAsJsonObject()
-				.get("annotations");
-		if (annotationElement == null) {
-			return new Tuple2<String, Set<String>>(newsLink, entities);
-		}
-		JsonArray annotations = annotationElement.getAsJsonArray();
-		for (JsonElement annotation : annotations) {
-			JsonObject annotationObject = annotation.getAsJsonObject();
-			JsonElement lod = annotationObject.get("lod");
-			if (lod == null)
-				continue;
-			String entity = lod.getAsJsonObject().get("dbpedia").getAsString();
-			if (entity != null)
-				entities.add(entity);
-		}
-		return new Tuple2<String, Set<String>>(newsLink, entities);
-	}
-
-	static List<String> splitJsonObjects(String string) {
-		List<String> jsonObjects = new ArrayList<String>();
-		int brackets = 0;
-		int start = 0;
-
-		for (int i = 0; i < string.length(); i++) {
-			switch (string.charAt(i)) {
-			case '{':
-				brackets++;
-				if (brackets == 1)
-					start = i;
-				break;
-			case '}':
-				brackets--;
-				if (brackets < 0) {
-					jsonObjects.clear(); // we started in the middle of a json
-											// object
-					brackets = 0;
-				} else if (brackets == 0) {
-					jsonObjects.add(string.substring(start, i + 1));
-				}
-				break;
-			default:
-				break;
+		JsonElement jsonElement = json.get("entities");
+		if (jsonElement != null)
+			for (JsonElement entityElement : jsonElement.getAsJsonArray()) {
+				entities.add(entityElement.getAsString());
 			}
-		}
-		return jsonObjects;
-	}
-
-	static String removeNewLines(String s) {
-		return s.replaceAll("\r\n|\r|\n", "");
+		return new Tuple2<String, Set<String>>(link, entities);
 	}
 
 }

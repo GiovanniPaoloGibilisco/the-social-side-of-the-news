@@ -33,28 +33,28 @@ public class Config implements Serializable {
 	public static void init(String[] args) {
 		_instance = new Config();
 		new JCommander(_instance, args);
-		logger.debug("Configuration: --tweetPath {} --newsPath {} --outputPathBase {} --appid {} --appkey {} --runlocal {} --minMatches {}",new Object[] {_instance.tweetsPath, _instance.newsPath, _instance.outputPathBase, _instance.app_id, _instance.app_key, _instance.runLocal, _instance.minMatches});
+		_instance.outputPathBase += "/" + (new java.util.Date().getTime());
+		logger.debug(
+				"Configuration: --tweetPath {} --newsEntitiesPath {} --outputPathBase {}  --runlocal {} --minMatches {}",
+				new Object[] { _instance.tweetsPath,
+						_instance.newsEntitiesPath,
+						_instance.outputPathBase, _instance.runLocal,
+						_instance.minMatches });
 	}
 
 	@Parameter(names = { "-t", "--tweetPath" }, required = true)
 	public String tweetsPath;
 
-	@Parameter(names = { "-n", "--newsPath" }, required = true)
-	public String newsPath;
-
-	@Parameter(names = { "-o", "--outputPathBase" }, required = true)
-	public String outputPathBase;
-
-	@Parameter(names = { "-i", "--appid" }, required = true)
-	public String app_id;
-
-	@Parameter(names = { "-k", "--appkey" }, required = true)
-	public String app_key;
+	@Parameter(names = { "-n", "--newsEntitiesPath" }, required = true)
+	public String newsEntitiesPath;
 
 	@Parameter(names = { "-l", "--runLocal" })
 	public boolean runLocal;
 
 	@Parameter(names = { "-m", "--minMatches" })
 	public Integer minMatches = 1;
+
+	@Parameter(names = { "-o", "--outputPathBase" }, required = true)
+	public String outputPathBase;
 
 }
