@@ -69,7 +69,7 @@ public class DataLoader {
 		int chunks = (int) Math.ceil((end - start) / chunkSize);
 		List<String> urlsList = new ArrayList<String>(chunks);
 
-		for (int i = 0; i < chunks; i++) {
+		for (int i = 0; i < chunks; i++) {	
 			UriBuilder urlBuilder = UriBuilder
 					.fromUri(url)
 					.queryParam(offsetParameterName,
@@ -90,6 +90,7 @@ public class DataLoader {
 
 		return urls.map(webResource -> {
 			Client client = Client.create();
+			logger.info("Request: {}",webResource);			
 			ClientResponse response = client.resource(webResource)
 					.accept("application/json").get(ClientResponse.class);
 			if (response.getStatus() != 200) {
