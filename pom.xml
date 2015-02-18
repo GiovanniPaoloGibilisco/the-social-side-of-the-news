@@ -5,7 +5,7 @@
 	<groupId>it.polimi.tssotn</groupId>
 	<artifactId>the-social-side-of-the-news</artifactId>
 	<packaging>pom</packaging>
-	<version>0.1</version>
+	<version>0.2-SNAPSHOT</version>
 	<name>The Social Side of The News</name>
 
 	<modules>
