@@ -50,7 +50,8 @@ public class InfluenceCalculator {
 			if (Config.getInstance().runLocal)
 				sparkConf.setMaster("local[1]");
 			sparkContext = new JavaSparkContext(sparkConf);
-
+			int parallelize = sparkConf.getInt("spark.default.parallelism", 4);
+			logger.info("parallelize value: {}",parallelize);
 			logger.info("Config instance: {} ",Config.getInstance());
 			logger.info("Query parameters: app_id = {},  app_key = {}", new Object[] {Config.getInstance().app_id, Config.getInstance().app_key});
 			logger.info("Broadcasting the configuration");
@@ -73,7 +74,7 @@ public class InfluenceCalculator {
 					+ new Date().getTime();
 
 			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
-					.textFile(config.newsPath).map(n -> removeNewLines(n))
+					.textFile(config.newsPath,parallelize).map(n -> removeNewLines(n))
 					.flatMap(n -> splitJsonObjects(n)).map(n -> getNewsLink(n))
 					.mapToPair(n -> extractEntities(n,config))
 					.filter(n -> hasEntities(n._2))
@@ -81,7 +82,7 @@ public class InfluenceCalculator {
 			logger.info("computed newsEntityLinkPairs");
 
 			JavaPairRDD<String, Tuple2<String, String>> tweetsEntityIDTimestampPairs = sparkContext
-					.textFile(config.tweetsPath)
+					.textFile(config.tweetsPath,parallelize)
 					.map(t -> removeNewLines(t))
 					.flatMap(t -> splitJsonObjects(t))
 					.mapToPair(
@@ -184,10 +185,7 @@ public class InfluenceCalculator {
 
 		Set<String> entities = new HashSet<String>();
 
-		Client client = Client.create();
-		logger.info("Config instance exists: {} ",config != null);
-		logger.info("Config instance: {} ",config);
-		logger.info("Query parameters: app_id = {},  app_key = {}, url = {}, min_confidence = {}, lang = it, include = lod, epsilon = 0.0", new Object[] {config.app_id, config.app_key, newsLink, Double.toString(minConfidence)});
+		Client client = Client.create();		
 		WebResource webResource = client.resource(dataTxtUrl)
 				.queryParam("$app_id", config.app_id)
 				.queryParam("$app_key", config.app_key)
