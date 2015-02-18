@@ -1,6 +1,9 @@
 package it.polimi.tssotn.dataprocessor;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
+import java.io.OutputStreamWriter;
+import java.io.Writer;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -13,6 +16,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.stream.Stream;
 
+import org.apache.commons.io.Charsets;
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
@@ -109,29 +113,33 @@ public class InfluenceCalculator {
 							n -> new Tuple2<String, String>(n._1()._1(), n._1()
 									._2())).countByKey());
 			saveToCSV(nTweetByNews, config.outputPathBase, "nTweetByNews");
-			
+
 			Map<String, Object> nNewsByNewsEntity = sortByValue(newsEntityLinkPairs
 					.countByKey());
-			saveToCSV(nNewsByNewsEntity, config.outputPathBase, "nNewsByNewsEntity");
-			
+			saveToCSV(nNewsByNewsEntity, config.outputPathBase,
+					"nNewsByNewsEntity");
+
 			Map<String, Object> nNewsByMatchedEntity = sortByValue(filteredNewsTweetEntity
 					.mapToPair(j -> new Tuple2<String, String>(j._2, j._1._1()))
 					.distinct().countByKey());
-			saveToCSV(nNewsByMatchedEntity, config.outputPathBase, "nNewsByMatchedEntity");
-			
+			saveToCSV(nNewsByMatchedEntity, config.outputPathBase,
+					"nNewsByMatchedEntity");
+
 			Map<String, Object> nTweetsByTweetsEntity = sortByValue(tweetsEntityIDTimestampPairs
 					.countByKey());
-			saveToCSV(nTweetsByTweetsEntity, config.outputPathBase, "nTweetsByTweetsEntity");
-			
+			saveToCSV(nTweetsByTweetsEntity, config.outputPathBase,
+					"nTweetsByTweetsEntity");
+
 			Map<String, Object> nTweetsByMatchedEntity = sortByValue(filteredNewsTweetEntity
 					.mapToPair(j -> new Tuple2<String, String>(j._2, j._1._2()))
 					.distinct().countByKey());
-			saveToCSV(nTweetsByMatchedEntity, config.outputPathBase, "nTweetsByMatchedEntity");
-			
+			saveToCSV(nTweetsByMatchedEntity, config.outputPathBase,
+					"nTweetsByMatchedEntity");
+
 			Map<String, Object> nTweetsByNotMatchedEntities = subtractByKey(
 					nTweetsByTweetsEntity, nTweetsByMatchedEntity);
-			saveToCSV(nTweetsByNotMatchedEntities, config.outputPathBase, "nTweetsByNotMatchedEntities");
-			
+			saveToCSV(nTweetsByNotMatchedEntities, config.outputPathBase,
+					"nTweetsByNotMatchedEntities");
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
@@ -149,13 +157,13 @@ public class InfluenceCalculator {
 			String outputPathBase, String filename) throws IOException {
 		Path outFile = new Path(outputPathBase, filename);
 		FSDataOutputStream outStream = hadoopFileSystem.create(outFile);
-
+		Writer writer = new BufferedWriter(new OutputStreamWriter(outStream,
+				Charsets.UTF_8));
 		for (Entry<String, Object> entry : map.entrySet())
-			outStream.writeChars(entry.getKey() + "," + entry.getValue()
-					+ System.lineSeparator());
+			writer.write(entry.getKey() + "," + entry.getValue() + "\n");
+		writer.flush();
+		writer.close();
 
-		outStream.flush();
-		outStream.close();
 	}
 
 	private static List<Tuple2<Tuple3<String, String, String>, String>> flatEntities(
@@ -185,8 +193,7 @@ public class InfluenceCalculator {
 		Stream<Entry<String, Object>> st = map.entrySet().stream();
 
 		st.sorted(
-				Comparator.comparing(
-						e -> ((Entry<String, Long>) e).getValue())
+				Comparator.comparing(e -> ((Entry<String, Long>) e).getValue())
 						.reversed()).forEach(
 				e -> result.put(e.getKey(), e.getValue()));
 
