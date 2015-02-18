@@ -14,6 +14,7 @@ import java.util.UUID;
 import java.util.stream.Stream;
 
 import org.apache.hadoop.conf.Configuration;
+import org.apache.hadoop.fs.FSDataOutputStream;
 import org.apache.hadoop.fs.FileSystem;
 import org.apache.hadoop.fs.Path;
 import org.apache.spark.SparkConf;
@@ -37,6 +38,7 @@ public class InfluenceCalculator {
 
 	static final Logger logger = LoggerFactory
 			.getLogger(InfluenceCalculator.class);
+	private static FileSystem hadoopFileSystem;
 
 	public static void main(String[] args) {
 		JavaSparkContext sparkContext = null;
@@ -44,7 +46,7 @@ public class InfluenceCalculator {
 			Config.init(args);
 			Config config = Config.getInstance();
 			Configuration hadoopConf = new Configuration();
-			FileSystem hadoopFileSystem = FileSystem.get(hadoopConf);
+			hadoopFileSystem = FileSystem.get(hadoopConf);
 			SparkConf sparkConf = new SparkConf()
 					.setAppName("tssotn-data-processor");
 			if (config.runLocal)
@@ -96,9 +98,9 @@ public class InfluenceCalculator {
 
 			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> filteredNewsTweetMatching = newsTweetMatching
 					.filter(r -> r._3() >= minMatches);
-			
-			JavaRDD<Tuple2<Tuple3<String, String, String>, String>> filteredNewsTweetEntity = filteredNewsTweetMatching.flatMap(
-					m -> flatEntities(m));
+
+			JavaRDD<Tuple2<Tuple3<String, String, String>, String>> filteredNewsTweetEntity = filteredNewsTweetMatching
+					.flatMap(m -> flatEntities(m));
 
 			// RESULTS
 
@@ -106,23 +108,30 @@ public class InfluenceCalculator {
 					.mapToPair(
 							n -> new Tuple2<String, String>(n._1()._1(), n._1()
 									._2())).countByKey());
-
+			saveToCSV(nTweetByNews, config.outputPathBase, "nTweetByNews");
+			
 			Map<String, Object> nNewsByNewsEntity = sortByValue(newsEntityLinkPairs
 					.countByKey());
-
+			saveToCSV(nNewsByNewsEntity, config.outputPathBase, "nNewsByNewsEntity");
+			
 			Map<String, Object> nNewsByMatchedEntity = sortByValue(filteredNewsTweetEntity
 					.mapToPair(j -> new Tuple2<String, String>(j._2, j._1._1()))
 					.distinct().countByKey());
-
+			saveToCSV(nNewsByMatchedEntity, config.outputPathBase, "nNewsByMatchedEntity");
+			
 			Map<String, Object> nTweetsByTweetsEntity = sortByValue(tweetsEntityIDTimestampPairs
 					.countByKey());
-
+			saveToCSV(nTweetsByTweetsEntity, config.outputPathBase, "nTweetsByTweetsEntity");
+			
 			Map<String, Object> nTweetsByMatchedEntity = sortByValue(filteredNewsTweetEntity
 					.mapToPair(j -> new Tuple2<String, String>(j._2, j._1._2()))
 					.distinct().countByKey());
-
+			saveToCSV(nTweetsByMatchedEntity, config.outputPathBase, "nTweetsByMatchedEntity");
+			
 			Map<String, Object> nTweetsByNotMatchedEntities = subtractByKey(
 					nTweetsByTweetsEntity, nTweetsByMatchedEntity);
+			saveToCSV(nTweetsByNotMatchedEntities, config.outputPathBase, "nTweetsByNotMatchedEntities");
+			
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
@@ -134,6 +143,19 @@ public class InfluenceCalculator {
 			if (sparkContext != null)
 				sparkContext.stop();
 		}
+	}
+
+	private static void saveToCSV(Map<String, Object> map,
+			String outputPathBase, String filename) throws IOException {
+		Path outFile = new Path(outputPathBase, filename);
+		FSDataOutputStream outStream = hadoopFileSystem.create(outFile);
+
+		for (Entry<String, Object> entry : map.entrySet())
+			outStream.writeChars(entry.getKey() + "," + entry.getValue()
+					+ System.lineSeparator());
+
+		outStream.flush();
+		outStream.close();
 	}
 
 	private static List<Tuple2<Tuple3<String, String, String>, String>> flatEntities(
@@ -159,12 +181,12 @@ public class InfluenceCalculator {
 
 	@SuppressWarnings("unchecked")
 	public static Map<String, Object> sortByValue(Map<String, Object> map) {
-		Map<String, Object> result = new LinkedHashMap<>();
+		Map<String, Object> result = new LinkedHashMap<String, Object>();
 		Stream<Entry<String, Object>> st = map.entrySet().stream();
 
 		st.sorted(
 				Comparator.comparing(
-						e -> ((Entry<String, Integer>) e).getValue())
+						e -> ((Entry<String, Long>) e).getValue())
 						.reversed()).forEach(
 				e -> result.put(e.getKey(), e.getValue()));
 
