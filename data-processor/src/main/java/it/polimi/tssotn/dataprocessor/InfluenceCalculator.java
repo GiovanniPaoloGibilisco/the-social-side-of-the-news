@@ -3,10 +3,15 @@ package it.polimi.tssotn.dataprocessor;
 import java.io.IOException;
 import java.util.ArrayList;
 import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.Map.Entry;
 import java.util.Set;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import org.apache.hadoop.conf.Configuration;
 import org.apache.hadoop.fs.FileSystem;
@@ -57,11 +62,13 @@ public class InfluenceCalculator {
 			if (!hadoopFileSystem.exists(new Path(config.tweetsPath)))
 				throw new IOException(config.tweetsPath + " does not exist");
 
-			JavaPairRDD<String, String> newsEntityLinkPairs = sparkContext
+			JavaPairRDD<String, Set<String>> newsLinkEntitiesPairs = sparkContext
 					.textFile(config.newsEntitiesPath)
 					.flatMap(n -> Commons.splitJsonObjects(n))
 					.mapToPair(n -> deserialize(n))
-					.filter(n -> Commons.hasEntities(n._2))
+					.filter(n -> Commons.hasEntities(n._2));
+			
+			JavaPairRDD<String, String> newsEntityLinkPairs = newsLinkEntitiesPairs
 					.flatMapToPair(n -> flatEntitiesAndSwap(n));
 
 			logger.info("computed newsEntityLinkPairs");
@@ -89,6 +96,16 @@ public class InfluenceCalculator {
 			raw.saveAsTextFile(config.outputPathBase);
 			logger.info("computed raw");
 
+			// RESULTS:
+
+			Map<String, Object> nTweetByNews = sortByValue(raw.mapToPair(
+					n -> new Tuple2<String, String>(n._1()._1(), n._1()._2()))
+					.countByKey());
+			
+			Map<String, Object> nNewsByEntityNews = sortByValue(newsEntityLinkPairs.countByKey());
+			
+			
+
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
 		} catch (ParameterException e) {
@@ -101,7 +118,21 @@ public class InfluenceCalculator {
 		}
 	}
 
-	private static Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer> addEntitiesCount(
+	@SuppressWarnings("unchecked")
+	public static Map<String, Object> sortByValue(Map<String, Object> map) {
+		Map<String, Object> result = new LinkedHashMap<>();
+		Stream<Entry<String, Object>> st = map.entrySet().stream();
+
+		st.sorted(
+				Comparator.comparing(
+						e -> ((Entry<String, Integer>) e).getValue())
+						.reversed()).forEach(
+				e -> result.put(e.getKey(), e.getValue()));
+
+		return result;
+	}
+
+	static Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer> addEntitiesCount(
 			Tuple2<Tuple3<String, String, String>, Iterable<String>> r) {
 		return new Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>(
 				r._1, r._2, size(r._2));
