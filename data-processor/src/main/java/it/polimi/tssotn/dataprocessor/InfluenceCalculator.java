@@ -55,6 +55,7 @@ public class InfluenceCalculator {
 			logger.info("Broadcasting the configuration");
 			Broadcast<Config> broadcastVar = sparkContext.broadcast(config);
 			config = broadcastVar.value();
+			final int minMatches = config.minMatches;
 
 			if (!hadoopFileSystem.exists(new Path(config.newsEntitiesPath)))
 				throw new IOException(config.newsEntitiesPath
@@ -67,7 +68,7 @@ public class InfluenceCalculator {
 					.flatMap(n -> Commons.splitJsonObjects(n))
 					.mapToPair(n -> deserialize(n))
 					.filter(n -> Commons.hasEntities(n._2));
-			
+
 			JavaPairRDD<String, String> newsEntityLinkPairs = newsLinkEntitiesPairs
 					.flatMapToPair(n -> flatEntitiesAndSwap(n));
 
@@ -85,26 +86,43 @@ public class InfluenceCalculator {
 					.flatMapToPair(t -> flatEntitiesAndSwap(t));
 			logger.info("computed tweetsEntityIDTimestampPairs");
 
-			JavaPairRDD<String, Tuple2<String, Tuple2<String, String>>> entityInfluenceMap = newsEntityLinkPairs
+			JavaPairRDD<String, Tuple2<String, Tuple2<String, String>>> joinEntityLinkIDTimestamp = newsEntityLinkPairs
 					.join(tweetsEntityIDTimestampPairs);
 			logger.info("computed join");
 
-			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> raw = entityInfluenceMap
+			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> newsTweetMatching = joinEntityLinkIDTimestamp
 					.mapToPair(r -> prepareKeyWithLinkIdTimestamp(r))
 					.groupByKey().map(r -> addEntitiesCount(r));
 
-			raw.saveAsTextFile(config.outputPathBase);
-			logger.info("computed raw");
+			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> filteredNewsTweetMatching = newsTweetMatching
+					.filter(r -> r._3() >= minMatches);
+			
+			JavaRDD<Tuple2<Tuple3<String, String, String>, String>> filteredNewsTweetEntity = filteredNewsTweetMatching.flatMap(
+					m -> flatEntities(m));
 
-			// RESULTS:
+			// RESULTS
 
-			Map<String, Object> nTweetByNews = sortByValue(raw.mapToPair(
-					n -> new Tuple2<String, String>(n._1()._1(), n._1()._2()))
+			Map<String, Object> nTweetByNews = sortByValue(filteredNewsTweetMatching
+					.mapToPair(
+							n -> new Tuple2<String, String>(n._1()._1(), n._1()
+									._2())).countByKey());
+
+			Map<String, Object> nNewsByNewsEntity = sortByValue(newsEntityLinkPairs
 					.countByKey());
-			
-			Map<String, Object> nNewsByEntityNews = sortByValue(newsEntityLinkPairs.countByKey());
-			
-			
+
+			Map<String, Object> nNewsByMatchedEntity = sortByValue(filteredNewsTweetEntity
+					.mapToPair(j -> new Tuple2<String, String>(j._2, j._1._1()))
+					.distinct().countByKey());
+
+			Map<String, Object> nTweetsByTweetsEntity = sortByValue(tweetsEntityIDTimestampPairs
+					.countByKey());
+
+			Map<String, Object> nTweetsByMatchedEntity = sortByValue(filteredNewsTweetEntity
+					.mapToPair(j -> new Tuple2<String, String>(j._2, j._1._2()))
+					.distinct().countByKey());
+
+			Map<String, Object> nTweetsByNotMatchedEntities = subtractByKey(
+					nTweetsByTweetsEntity, nTweetsByMatchedEntity);
 
 		} catch (IOException e) {
 			logger.error("Wrong Hadoop configuration", e);
@@ -116,6 +134,27 @@ public class InfluenceCalculator {
 			if (sparkContext != null)
 				sparkContext.stop();
 		}
+	}
+
+	private static List<Tuple2<Tuple3<String, String, String>, String>> flatEntities(
+			Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer> m) {
+		List<Tuple2<Tuple3<String, String, String>, String>> linkIdTimestampEntity = new ArrayList<Tuple2<Tuple3<String, String, String>, String>>();
+		for (String entity : m._2()) {
+			linkIdTimestampEntity
+					.add(new Tuple2<Tuple3<String, String, String>, String>(m
+							._1(), entity));
+		}
+		return linkIdTimestampEntity;
+	}
+
+	private static Map<String, Object> subtractByKey(Map<String, Object> map1,
+			Map<String, Object> map2) {
+		LinkedHashMap<String, Object> newMap = new LinkedHashMap<String, Object>();
+		for (String key1 : map1.keySet()) {
+			if (!map2.containsKey(key1))
+				newMap.put(key1, map1.get(key1));
+		}
+		return newMap;
 	}
 
 	@SuppressWarnings("unchecked")
