@@ -4,7 +4,7 @@
     <parent>
         <groupId>it.polimi.tssotn</groupId>
         <artifactId>the-social-side-of-the-news</artifactId>
-        <version>0.2-SNAPSHOT</version>
+        <version>0.2</version>
     </parent>
     <artifactId>data-loader</artifactId>
     <packaging>jar</packaging>
