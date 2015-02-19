@@ -37,6 +37,7 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import com.google.gson.JsonPrimitive;
 
 public class InfluenceCalculator {
 
@@ -80,7 +81,7 @@ public class InfluenceCalculator {
 
 			logger.info("computed newsEntityLinkPairs");
 
-			JavaPairRDD<String, Tuple2<String, String>> tweetsEntityIDTimestampPairs = sparkContext
+			JavaPairRDD<String, Tuple2<String, Integer>> tweetsEntityIDTimestampPairs = sparkContext
 					.textFile(config.tweetsPath, parallelize)
 					.map(t -> Commons.removeNewLines(t))
 					.flatMap(t -> Commons.splitJsonObjects(t))
@@ -92,21 +93,32 @@ public class InfluenceCalculator {
 					.flatMapToPair(t -> flatEntitiesAndSwap(t));
 			logger.info("computed tweetsEntityIDTimestampPairs");
 
-			JavaPairRDD<String, Tuple2<String, Tuple2<String, String>>> joinEntityLinkIDTimestamp = newsEntityLinkPairs
+			JavaPairRDD<String, Tuple2<String, Tuple2<String, Integer>>> joinEntityLinkIDTimestamp = newsEntityLinkPairs
 					.join(tweetsEntityIDTimestampPairs);
 			logger.info("computed join");
 
-			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> newsTweetMatching = joinEntityLinkIDTimestamp
+			JavaRDD<Tuple3<Tuple3<String, String, Integer>, Iterable<String>, Integer>> newsTweetMatching = joinEntityLinkIDTimestamp
 					.mapToPair(r -> prepareKeyWithLinkIdTimestamp(r))
 					.groupByKey().map(r -> addEntitiesCount(r));
 
-			JavaRDD<Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>> filteredNewsTweetMatching = newsTweetMatching
+			JavaRDD<Tuple3<Tuple3<String, String, Integer>, Iterable<String>, Integer>> filteredNewsTweetMatching = newsTweetMatching
 					.filter(r -> r._3() >= minMatches);
 
-			JavaRDD<Tuple2<Tuple3<String, String, String>, String>> filteredNewsTweetEntity = filteredNewsTweetMatching
+			JavaRDD<Tuple2<Tuple3<String, String, Integer>, String>> filteredNewsTweetEntity = filteredNewsTweetMatching
 					.flatMap(m -> flatEntities(m));
 
-			// RESULTS
+			JavaPairRDD<String, Integer> newsTwees = filteredNewsTweetMatching
+					.mapToPair(n -> new Tuple2<String, Integer>(n._1()._1(), n
+							._1()._3()));
+
+			JavaPairRDD<String, Iterable<Integer>> newsTweetTimes = newsTwees
+					.groupByKey();
+
+			JavaRDD<String> newsTweetsJson = newsTweetTimes
+					.map(n -> serializeTimeserieToJson(n));
+
+			saveToJson(newsTweetsJson.collect(), config.outputPathBase,
+					"newsTimeSeries");
 
 			Map<String, Object> nTweetByNews = sortByValue(filteredNewsTweetMatching
 					.mapToPair(
@@ -153,6 +165,24 @@ public class InfluenceCalculator {
 		}
 	}
 
+	private static void saveToJson(List<String> jsonObjects,
+			String outputPathBase, String filename) throws IOException {
+		Path outFile = new Path(outputPathBase, filename);
+		FSDataOutputStream outStream = hadoopFileSystem.create(outFile);
+		Writer writer = new BufferedWriter(new OutputStreamWriter(outStream,
+				Charsets.UTF_8));
+		writer.write("[");
+		for (String jsonObject : jsonObjects) {
+			writer.write(jsonObject);
+			if (jsonObjects.size() - 1 != jsonObjects.lastIndexOf(jsonObject))
+				writer.write(",");
+		}
+
+		writer.write("]");
+		writer.flush();
+		writer.close();
+	}
+
 	private static void saveToCSV(Map<String, Object> map,
 			String outputPathBase, String filename) throws IOException {
 		Path outFile = new Path(outputPathBase, filename);
@@ -166,12 +196,12 @@ public class InfluenceCalculator {
 
 	}
 
-	private static List<Tuple2<Tuple3<String, String, String>, String>> flatEntities(
-			Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer> m) {
-		List<Tuple2<Tuple3<String, String, String>, String>> linkIdTimestampEntity = new ArrayList<Tuple2<Tuple3<String, String, String>, String>>();
+	private static List<Tuple2<Tuple3<String, String, Integer>, String>> flatEntities(
+			Tuple3<Tuple3<String, String, Integer>, Iterable<String>, Integer> m) {
+		List<Tuple2<Tuple3<String, String, Integer>, String>> linkIdTimestampEntity = new ArrayList<Tuple2<Tuple3<String, String, Integer>, String>>();
 		for (String entity : m._2()) {
 			linkIdTimestampEntity
-					.add(new Tuple2<Tuple3<String, String, String>, String>(m
+					.add(new Tuple2<Tuple3<String, String, Integer>, String>(m
 							._1(), entity));
 		}
 		return linkIdTimestampEntity;
@@ -200,9 +230,9 @@ public class InfluenceCalculator {
 		return result;
 	}
 
-	static Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer> addEntitiesCount(
-			Tuple2<Tuple3<String, String, String>, Iterable<String>> r) {
-		return new Tuple3<Tuple3<String, String, String>, Iterable<String>, Integer>(
+	static Tuple3<Tuple3<String, String, Integer>, Iterable<String>, Integer> addEntitiesCount(
+			Tuple2<Tuple3<String, String, Integer>, Iterable<String>> r) {
+		return new Tuple3<Tuple3<String, String, Integer>, Iterable<String>, Integer>(
 				r._1, r._2, size(r._2));
 	}
 
@@ -211,10 +241,10 @@ public class InfluenceCalculator {
 		return new Tuple2<String, String>(p._1._1(), p._1._3());
 	}
 
-	static Tuple2<Tuple3<String, String, String>, String> prepareKeyWithLinkIdTimestamp(
-			Tuple2<String, Tuple2<String, Tuple2<String, String>>> p) {
-		return new Tuple2<Tuple3<String, String, String>, String>(
-				new Tuple3<String, String, String>(p._2._1, p._2._2._1,
+	static Tuple2<Tuple3<String, String, Integer>, String> prepareKeyWithLinkIdTimestamp(
+			Tuple2<String, Tuple2<String, Tuple2<String, Integer>>> p) {
+		return new Tuple2<Tuple3<String, String, Integer>, String>(
+				new Tuple3<String, String, Integer>(p._2._1, p._2._2._1,
 						p._2._2._2), p._1);
 	}
 
@@ -228,11 +258,11 @@ public class InfluenceCalculator {
 		return i;
 	}
 
-	static Tuple2<Tuple2<String, String>, Set<String>> extractTimestampsAndEntities(
+	static Tuple2<Tuple2<String, Integer>, Set<String>> extractTimestampsAndEntities(
 			Tuple2<String, String> t) {
 		Set<String> entities = new HashSet<String>();
 		JsonObject jsonTweet = new JsonParser().parse(t._2).getAsJsonObject();
-		String timestamp = jsonTweet.get("timestamp").getAsString();
+		int timestamp = jsonTweet.get("timestamp").getAsInt();
 		JsonElement entitiesArray = jsonTweet.get("entities");
 		if (entitiesArray != null) {
 			JsonArray jsonEntities = entitiesArray.getAsJsonArray();
@@ -240,8 +270,8 @@ public class InfluenceCalculator {
 				entities.add(jsonElement.getAsString());
 			}
 		}
-		return new Tuple2<Tuple2<String, String>, Set<String>>(
-				new Tuple2<String, String>(t._1, timestamp), entities);
+		return new Tuple2<Tuple2<String, Integer>, Set<String>>(
+				new Tuple2<String, Integer>(t._1, timestamp), entities);
 	}
 
 	static <T> List<Tuple2<String, T>> flatEntitiesAndSwap(
@@ -271,4 +301,14 @@ public class InfluenceCalculator {
 		return new Tuple2<String, Set<String>>(link, entities);
 	}
 
+	static String serializeTimeserieToJson(Tuple2<String, Iterable<Integer>> n) {
+		JsonObject json = new JsonObject();
+		json.addProperty("link", n._1);
+		JsonArray timestamps = new JsonArray();
+		json.add("timestamps", timestamps);
+		for (Integer timestamp : n._2) {
+			timestamps.add(new JsonPrimitive(timestamp));
+		}
+		return json.toString();
+	}
 }
